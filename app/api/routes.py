@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query
 
 from app.models.route import Coordinate, RouteRequest, RouteResponse
+from app.services.map_service import map_service
 from app.services.route_optimizer import route_optimizer
 from app.services.traffic_service import traffic_service
 from app.services.visualization import visualization_service
@@ -12,6 +13,30 @@ router = APIRouter(prefix="/api/v1", tags=["routes"])
 
 def _handle_validation_error(e: ValueError) -> HTTPException:
     return HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/map/status")
+async def map_status():
+    return {
+        "loaded": map_service.is_loaded,
+        "place": map_service.place_name if map_service.is_loaded else None,
+        "nodes": len(map_service.graph.nodes) if map_service.is_loaded else 0,
+        "edges": len(map_service.graph.edges) if map_service.is_loaded else 0,
+    }
+
+
+@router.post("/map/load")
+async def load_map():
+    if not map_service.is_loaded:
+        map_service.load_graph()
+    return {
+        "loaded": map_service.is_loaded,
+        "place": map_service.place_name,
+        "nodes": len(map_service.graph.nodes) if map_service.is_loaded else 0,
+        "edges": len(map_service.graph.edges) if map_service.is_loaded else 0,
+        "message": "Map loaded, real road routing enabled" if map_service.is_loaded
+        else "Map load failed, using fallback routing",
+    }
 
 
 @router.post("/route/predict", response_model=RouteResponse)

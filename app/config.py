@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     weather_weight: float = 0.15
 
     max_alternative_routes: int = 3
+    map_load_timeout: int = 30
 
     class Config:
         env_file = ".env"

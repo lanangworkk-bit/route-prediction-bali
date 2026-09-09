@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from datetime import datetime
 
@@ -19,7 +18,6 @@ logger = logging.getLogger(__name__)
 class RouteOptimizer:
     def __init__(self):
         self.settings = get_settings()
-        self._map_load_attempted = False
 
     async def find_best_route(self, request: RouteRequest) -> RouteResponse:
         logger.info(f"Finding route from {request.origin} to {request.destination}")
@@ -28,15 +26,6 @@ class RouteOptimizer:
             request.origin.lat, request.origin.lng
         )
         weather_impact = weather_service.calculate_weather_impact(weather)
-
-        try:
-            if not map_service.is_loaded and not self._map_load_attempted:
-                self._map_load_attempted = True
-                await asyncio.wait_for(self._load_map_aasync(), timeout=30)
-        except TimeoutError:
-            logger.warning("Map loading timed out, using fallback routing")
-        except Exception as e:
-            logger.warning(f"Map loading failed: {e}, using fallback routing")
 
         raw_routes = map_service.find_alternative_paths(
             request.origin,
@@ -69,10 +58,6 @@ class RouteOptimizer:
             weather_summary=weather_summary,
             generated_at=datetime.now().isoformat(),
         )
-
-    async def _load_map_aasync(self):
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, map_service.load_graph)
 
     def _score_route(
         self, route_data: dict, weather_speed_factor: float, preferences

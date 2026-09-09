@@ -20,6 +20,8 @@ class MapService:
 
         logger.info(f"Loading map graph for {self._place_name}")
         try:
+            ox.settings.requests_timeout = 15
+            ox.settings.max_query_area_size = 5000 * 5000
             self._graph = ox.graph_from_place(self._place_name, network_type="drive")
             self._graph = ox.add_edge_speeds(self._graph)
             self._graph = ox.add_edge_travel_times(self._graph)
@@ -141,6 +143,14 @@ class MapService:
     @property
     def is_loaded(self) -> bool:
         return self._graph is not None and len(self._graph.nodes) > 0
+
+    @property
+    def place_name(self) -> str:
+        return self._place_name
+
+    @property
+    def graph(self):
+        return self._graph
 
 
 map_service = MapService()
