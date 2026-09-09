@@ -1,12 +1,17 @@
 from fastapi import APIRouter, HTTPException, Query
-from app.models.route import RouteRequest, RouteResponse, Coordinate
+
+from app.models.route import Coordinate, RouteRequest, RouteResponse
 from app.services.route_optimizer import route_optimizer
-from app.services.visualization import visualization_service
 from app.services.traffic_service import traffic_service
+from app.services.visualization import visualization_service
 from app.services.weather_service import weather_service
-from app.utils.validators import validate_route_request, is_within_bali
+from app.utils.validators import is_within_bali, validate_route_request
 
 router = APIRouter(prefix="/api/v1", tags=["routes"])
+
+
+def _handle_validation_error(e: ValueError) -> HTTPException:
+    return HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/route/predict", response_model=RouteResponse)
@@ -14,7 +19,7 @@ async def predict_route(request: RouteRequest):
     try:
         validate_route_request(request)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise _handle_validation_error(e) from e
 
     response = await route_optimizer.find_best_route(request)
     return response
@@ -35,7 +40,7 @@ async def visualize_route(
     try:
         validate_route_request(request)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise _handle_validation_error(e) from e
 
     response = await route_optimizer.find_best_route(request)
     map_obj = visualization_service.create_route_map(response)

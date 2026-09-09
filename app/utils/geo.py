@@ -1,4 +1,5 @@
 import math
+
 from app.models.route import Coordinate
 
 

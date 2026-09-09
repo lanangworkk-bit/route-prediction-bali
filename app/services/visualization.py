@@ -1,7 +1,7 @@
 import folium
-from folium import plugins
-from app.models.route import RouteResponse, RouteInfo, Coordinate
+
 from app.config import get_settings
+from app.models.route import RouteInfo, RouteResponse
 
 
 class VisualizationService:
@@ -9,8 +9,11 @@ class VisualizationService:
         self.settings = get_settings()
 
     def create_route_map(self, response: RouteResponse) -> folium.Map:
-        center_lat = (response.best_route.coordinates[0].lat + response.best_route.coordinates[-1].lat) / 2
-        center_lng = (response.best_route.coordinates[0].lng + response.best_route.coordinates[-1].lng) / 2
+        best = response.best_route
+        first = best.coordinates[0]
+        last = best.coordinates[-1]
+        center_lat = (first.lat + last.lat) / 2
+        center_lng = (first.lng + last.lng) / 2
 
         m = folium.Map(
             location=[center_lat, center_lng],

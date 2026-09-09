@@ -1,13 +1,15 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+
 from app.api.routes import router
-from app.services.map_service import map_service
-from app.ml.traffic_predictor import traffic_predictor
-from app.ml.route_scorer import route_scorer
 from app.config import get_settings
-import logging
+from app.ml.route_scorer import route_scorer
+from app.ml.traffic_predictor import traffic_predictor
+from app.services.map_service import map_service
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -36,7 +38,7 @@ app.mount("/maps", StaticFiles(directory="data/processed"), name="maps")
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
-    with open("app/static/index.html", "r") as f:
+    with open("app/static/index.html") as f:
         return f.read()
 
 

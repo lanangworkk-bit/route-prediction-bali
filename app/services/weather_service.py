@@ -1,8 +1,9 @@
-import requests
 import logging
-from datetime import datetime
+
+import requests
+
 from app.config import get_settings
-from app.models.weather import WeatherData, WeatherCondition, WeatherImpact
+from app.models.weather import WeatherCondition, WeatherData, WeatherImpact
 
 logger = logging.getLogger(__name__)
 

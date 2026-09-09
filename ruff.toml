@@ -1,0 +1,17 @@
+line-length = 100
+target-version = "py311"
+
+[lint]
+select = ["E", "F", "I", "W", "UP", "B", "SIM"]
+ignore = [
+    "BLE001",     # fallback intentionally catches broad exceptions
+    "ASYNC210",   # short blocking HTTP call in weather service is acceptable
+    "ASYNC230",   # file open in root handler is acceptable
+    "UP042",      # str + Enum is idiomatic for Pydantic models
+]
+
+[lint.per-file-ignores]
+"app/services/visualization.py" = ["E501"]  # HTML template strings
+"app/static/index.html" = ["E501", "F"]     # static asset, not Python
+"demo_visualization.py" = ["E501"]          # console script
+"train_and_demo.py" = ["E501"]              # console script

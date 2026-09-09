@@ -1,6 +1,7 @@
+from datetime import datetime
+
 import numpy as np
 import pandas as pd
-from datetime import datetime
 
 
 class FeatureEngineer:
@@ -93,7 +94,9 @@ class FeatureEngineer:
         df["is_evening_peak"] = ((df["hour"] >= 17) & (df["hour"] <= 19)).astype(int)
 
         center_lat, center_lng = -8.6500, 115.2167
-        df["distance_to_center"] = ((df["lat"] - center_lat) ** 2 + (df["lng"] - center_lng) ** 2) ** 0.5
+        dist_lat = df["lat"] - center_lat
+        dist_lng = df["lng"] - center_lng
+        df["distance_to_center"] = ((dist_lat**2) + (dist_lng**2)) ** 0.5
 
         df["congestion"] = self._generate_synthetic_congestion(df)
 

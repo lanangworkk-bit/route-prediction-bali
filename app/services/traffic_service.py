@@ -1,7 +1,8 @@
-import random
 import logging
+import random
 from datetime import datetime, timedelta
-from app.models.traffic import TrafficData, TrafficPrediction, TrafficLevel
+
+from app.models.traffic import TrafficPrediction
 
 logger = logging.getLogger(__name__)
 

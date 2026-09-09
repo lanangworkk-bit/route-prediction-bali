@@ -1,8 +1,10 @@
-from app.models.route import RouteRequest, Coordinate
+from app.models.route import Coordinate, RouteRequest
 
 
 def validate_route_request(request: RouteRequest) -> RouteRequest:
-    if request.origin.lat == request.destination.lat and request.origin.lng == request.destination.lng:
+    same_lat = request.origin.lat == request.destination.lat
+    same_lng = request.origin.lng == request.destination.lng
+    if same_lat and same_lng:
         raise ValueError("Origin and destination cannot be the same")
 
     return request

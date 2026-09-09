@@ -1,17 +1,17 @@
-import logging
 import asyncio
+import logging
 from datetime import datetime
+
+from app.config import get_settings
 from app.models.route import (
-    RouteRequest,
     RouteInfo,
-    RouteResponse,
-    Coordinate,
     RoutePriority,
+    RouteRequest,
+    RouteResponse,
 )
 from app.services.map_service import map_service
 from app.services.traffic_service import traffic_service
 from app.services.weather_service import weather_service
-from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ class RouteOptimizer:
             if not map_service.is_loaded and not self._map_load_attempted:
                 self._map_load_attempted = True
                 await asyncio.wait_for(self._load_map_aasync(), timeout=30)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("Map loading timed out, using fallback routing")
         except Exception as e:
             logger.warning(f"Map loading failed: {e}, using fallback routing")

@@ -1,8 +1,10 @@
-import osmnx as ox
+import logging
+
 import networkx as nx
+import osmnx as ox
+
 from app.models.route import Coordinate
 from app.utils.geo import haversine_distance
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +23,9 @@ class MapService:
             self._graph = ox.graph_from_place(self._place_name, network_type="drive")
             self._graph = ox.add_edge_speeds(self._graph)
             self._graph = ox.add_edge_travel_times(self._graph)
-            logger.info(f"Graph loaded: {len(self._graph.nodes)} nodes, {len(self._graph.edges)} edges")
+            nodes = len(self._graph.nodes)
+            edges = len(self._graph.edges)
+            logger.info(f"Graph loaded: {nodes} nodes, {edges} edges")
         except Exception as e:
             logger.error(f"Error loading graph: {e}")
             self._graph = nx.DiGraph()
@@ -41,7 +45,7 @@ class MapService:
 
         try:
             path = nx.shortest_path(self._graph, orig_node, dest_node, weight="travel_time")
-            edges = list(zip(path[:-1], path[1:]))
+            edges = list(zip(path[:-1], path[1:], strict=False))
 
             total_distance = 0
             total_time = 0
@@ -80,11 +84,14 @@ class MapService:
         paths = []
 
         try:
-            for path in nx.shortest_simple_paths(self._graph, orig_node, dest_node, weight="travel_time"):
+            generator = nx.shortest_simple_paths(
+                self._graph, orig_node, dest_node, weight="travel_time"
+            )
+            for path in generator:
                 if len(paths) >= num_paths:
                     break
 
-                edges = list(zip(path[:-1], path[1:]))
+                edges = list(zip(path[:-1], path[1:], strict=False))
                 total_distance = 0
                 total_time = 0
                 coordinates = []
