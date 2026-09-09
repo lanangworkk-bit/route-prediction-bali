@@ -26,9 +26,9 @@ def validate_coordinates(lat: float, lng: float) -> bool:
 
 def is_within_bali(coord: Coordinate) -> bool:
     bali_bounds = {
-        "min_lat": -8.8,
+        "min_lat": -8.85,  # Meliputi Uluwatu & Semenanjung Bukit
         "max_lat": -8.0,
-        "min_lng": 114.4,
+        "min_lng": 114.4,  # Meliputi Gilimanuk (ujung barat)
         "max_lng": 115.8,
     }
     return (

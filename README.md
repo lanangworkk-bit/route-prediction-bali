@@ -118,6 +118,18 @@ python scripts/retrain.py --min-samples 10
 
 Model akan diblend dengan data riwayat hanya jika jumlah sampel riwayat ≥ `--min-samples`.
 
+### Daftar Daerah Bali
+
+Sistem mencakup **seluruh Bali** (9 kabupaten/kota). Daftar daerah tersedia lewat API untuk dropdown UI:
+
+```http
+GET /api/v1/areas               # Semua daerah (32+ titik: kota, pantai, pura, dll)
+GET /api/v1/areas?q=uluwatu     # Pencarian per nama/kabupaten
+GET /api/v1/areas/regencies     # Dikelompokkan per kabupaten
+```
+
+Cakupan koordinat: lat `-8.85..-8.0` (termasuk Uluwatu/Bukit), lng `114.4..115.8` (termasuk Gilimanuk di barat).
+
 ### Info Lalu Lintas
 
 ```http

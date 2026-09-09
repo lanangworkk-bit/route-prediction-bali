@@ -248,6 +248,9 @@
             <div class="status-bar" id="statusBar">Server terkoneksi ✓</div>
 
             <h2>📍 Titik Awal</h2>
+            <select id="originArea" onchange="setAreaFromDropdown('origin', this.value)">
+                <option value="">🗺️ Pilih Daerah Bali...</option>
+            </select>
             <div class="coordinate-row">
                 <input type="text" id="originLat" placeholder="Lat" value="-8.6500">
                 <input type="text" id="originLng" placeholder="Lng" value="115.2167">
@@ -255,10 +258,13 @@
             <div class="preset">
                 <button class="preset-btn" onclick="setPreset('denpasar')">Denpasar</button>
                 <button class="preset-btn" onclick="setPreset('kuta')">Kuta</button>
-                <button class="preset-btn" onclick="setPreset('ubin')">Ubud</button>
+                <button class="preset-btn" onclick="setPreset('ubud')">Ubud</button>
             </div>
 
             <h2>🏁 Titik Tujuan</h2>
+            <select id="destArea" onchange="setAreaFromDropdown('dest', this.value)">
+                <option value="">🗺️ Pilih Daerah Bali...</option>
+            </select>
             <div class="coordinate-row">
                 <input type="text" id="destLat" placeholder="Lat" value="-8.3405">
                 <input type="text" id="destLng" placeholder="Lng" value="115.0920">
@@ -314,26 +320,66 @@
         let selectedPriority = 'time';
 
         const PRESETS = {
-            denpasar: { lat: -8.6500, lng: 115.2167 },
-            kuta: { lat: -8.3405, lng: 115.0920 },
-            ubud: { lat: -8.4095, lng: 115.1889 },
-            'nusa-dua': { lat: -8.7930, lng: 115.2280 },
+            denpasar: { lat: -8.6525, lng: 115.2193 },
+            kuta: { lat: -8.7234, lng: 115.1723 },
+            ubud: { lat: -8.5069, lng: 115.2624 },
+            'nusa-dua': { lat: -8.7934, lng: 115.2280 },
         };
 
-        function setPreset(name) {
-            const loc = PRESETS[name];
-            if (loc) {
-                document.getElementById('originLat').value = loc.lat;
-                document.getElementById('originLng').value = loc.lng;
+        function setArea(coords) {
+            if (coords && !isNaN(coords.lat) && !isNaN(coords.lng)) {
+                document.getElementById('originLat').value = coords.lat;
+                document.getElementById('originLng').value = coords.lng;
             }
+        }
+        function setDestArea(coords) {
+            if (coords && !isNaN(coords.lat) && !isNaN(coords.lng)) {
+                document.getElementById('destLat').value = coords.lat;
+                document.getElementById('destLng').value = coords.lng;
+            }
+        }
+        function setPreset(name) {
+            setArea(PRESETS[name]);
         }
         function setDestPreset(name) {
-            const loc = PRESETS[name];
-            if (loc) {
-                document.getElementById('destLat').value = loc.lat;
-                document.getElementById('destLng').value = loc.lng;
+            setDestArea(PRESETS[name]);
+        }
+
+        function setAreaFromDropdown(side, value) {
+            if (!value) return;
+            const [lat, lng] = value.split(',');
+            const coords = { lat: parseFloat(lat), lng: parseFloat(lng) };
+            if (side === 'origin') setArea(coords);
+            else setDestArea(coords);
+        }
+
+        async function initAreas() {
+            try {
+                const res = await fetch(`${API_BASE}/api/v1/areas/regencies`);
+                const groups = await res.json();
+                const originSelect = document.getElementById('originArea');
+                const destSelect = document.getElementById('destArea');
+
+                groups.forEach(group => {
+                    const og = document.createElement('optgroup');
+                    og.label = group.name;
+                    const dg = document.createElement('optgroup');
+                    dg.label = group.name;
+
+                    group.areas.forEach(area => {
+                        const val = `${area.lat},${area.lng}`;
+                        og.appendChild(new Option(area.name, val));
+                        dg.appendChild(new Option(area.name, val));
+                    });
+                    originSelect.appendChild(og);
+                    destSelect.appendChild(dg);
+                });
+            } catch (err) {
+                console.error('Gagal memuat daftar daerah:', err);
             }
         }
+
+        initAreas();
         function selectPriority(el) {
             document.querySelectorAll('.radio-btn').forEach(b => b.classList.remove('selected'));
             el.classList.add('selected');

@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.ml.trainer import retrain_models
 from app.models.route import Coordinate, RouteRequest, RouteResponse
+from app.services.area_service import area_service
 from app.services.history_service import history_service
 from app.services.map_service import map_service
 from app.services.route_optimizer import route_optimizer
@@ -15,6 +16,25 @@ router = APIRouter(prefix="/api/v1", tags=["routes"])
 
 def _handle_validation_error(e: ValueError) -> HTTPException:
     return HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/areas")
+async def list_areas(
+    q: str = Query("", description="Search area by name or regency"),
+):
+    """All Bali areas: regencies, cities, beaches, temples and more."""
+    areas = area_service.search(q)
+    return {
+        "total": len(areas),
+        "regencies": area_service.REGENCIES,
+        "areas": areas,
+    }
+
+
+@router.get("/areas/regencies")
+async def list_regencies():
+    """Bali areas grouped by regency (for region-based dropdowns)."""
+    return area_service.list_regencies()
 
 
 def _parse_waypoints(waypoints_str: str) -> list[Coordinate]:

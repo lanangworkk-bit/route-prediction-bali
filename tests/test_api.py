@@ -49,6 +49,37 @@ def test_map_status():
     assert "nodes" in data
 
 
+def test_list_areas():
+    response = client.get("/api/v1/areas")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] >= 30
+    names = {a["name"] for a in data["areas"]}
+    assert {"Denpasar", "Kuta", "Ubud", "Singaraja", "Negara"} <= names
+    assert len(data["regencies"]) == 9
+    for area in data["areas"]:
+        assert -8.85 <= area["lat"] <= -8.0
+        assert 114.4 <= area["lng"] <= 115.8
+
+
+def test_search_areas():
+    response = client.get("/api/v1/areas", params={"q": "kintamani"})
+    assert response.status_code == 200
+    data = response.json()
+    assert any(a["name"] == "Kintamani" for a in data["areas"])
+
+
+def test_areas_grouped_by_regency():
+    response = client.get("/api/v1/areas/regencies")
+    assert response.status_code == 200
+    groups = response.json()
+    assert len(groups) == 9
+    badung = next(g for g in groups if g["name"] == "Badung")
+    assert {"name": "Kuta"}.get("name") and any(
+        a["name"] == "Kuta" for a in badung["areas"]
+    )
+
+
 def test_get_weather():
     response = client.get("/api/v1/weather/-8.6500/115.2167")
     assert response.status_code == 200
