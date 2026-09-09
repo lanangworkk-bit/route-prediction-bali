@@ -1,6 +1,8 @@
 from fastapi import APIRouter, HTTPException, Query
 
+from app.ml.trainer import retrain_models
 from app.models.route import Coordinate, RouteRequest, RouteResponse
+from app.services.history_service import history_service
 from app.services.map_service import map_service
 from app.services.route_optimizer import route_optimizer
 from app.services.traffic_service import traffic_service
@@ -13,6 +15,27 @@ router = APIRouter(prefix="/api/v1", tags=["routes"])
 
 def _handle_validation_error(e: ValueError) -> HTTPException:
     return HTTPException(status_code=400, detail=str(e))
+
+
+def _parse_waypoints(waypoints_str: str) -> list[Coordinate]:
+    waypoints = []
+    for chunk in waypoints_str.split(";"):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        parts = chunk.split(",")
+        if len(parts) != 2:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid waypoint format. Expected lat,lng separated by ';'",
+            )
+        try:
+            waypoints.append(Coordinate(lat=float(parts[0]), lng=float(parts[1])))
+        except ValueError as e:
+            raise HTTPException(
+                status_code=400, detail=f"Invalid waypoint coordinate: {chunk}"
+            ) from e
+    return waypoints
 
 
 @router.get("/map/status")
@@ -56,10 +79,14 @@ async def visualize_route(
     origin_lng: float = Query(..., ge=-180, le=180),
     dest_lat: float = Query(..., ge=-90, le=90),
     dest_lng: float = Query(..., ge=-180, le=180),
+    waypoints: str = Query(
+        "", description="Optional stops 'lat,lng;lat,lng' in order"
+    ),
 ):
     request = RouteRequest(
         origin=Coordinate(lat=origin_lat, lng=origin_lng),
         destination=Coordinate(lat=dest_lat, lng=dest_lng),
+        waypoints=_parse_waypoints(waypoints),
     )
 
     try:
@@ -70,7 +97,12 @@ async def visualize_route(
     response = await route_optimizer.find_best_route(request)
     map_obj = visualization_service.create_route_map(response)
 
-    filename = f"data/processed/route_{origin_lat}_{origin_lng}_to_{dest_lat}_{dest_lng}.html"
+    slug = "_".join(f"{w.lat}_{w.lng}" for w in request.waypoints)
+    suffix = f"via_{slug}_to_" if slug else "_to_"
+    filename = (
+        f"data/processed/route_{origin_lat}_{origin_lng}{suffix}"
+        f"{dest_lat}_{dest_lng}.html"
+    )
     visualization_service.save_map(map_obj, filename)
 
     return {
@@ -80,6 +112,7 @@ async def visualize_route(
             "distance_km": response.best_route.distance_km,
             "estimated_time": response.best_route.estimated_time_minutes,
             "score": response.best_route.overall_score,
+            "stops": 2 + len(request.waypoints),
         },
     }
 
@@ -112,3 +145,30 @@ async def get_weather(lat: float, lng: float):
         "weather": weather.model_dump(),
         "impact": impact.model_dump(),
     }
+
+
+@router.get("/history")
+async def get_history(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    records = history_service.get_history(limit=limit, offset=offset)
+    return {
+        "total": history_service.get_count(),
+        "records": records,
+    }
+
+
+@router.get("/history/stats")
+async def get_history_stats():
+    return history_service.get_stats()
+
+
+@router.post("/models/retrain")
+async def retrain():
+    try:
+        report = retrain_models()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Retraining failed: {e}") from e
+
+    return {"status": "ok", "report": report}

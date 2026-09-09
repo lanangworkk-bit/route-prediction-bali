@@ -1,31 +1,38 @@
 import logging
 import random
+import time
 from datetime import datetime, timedelta
 
+import requests
+
+from app.config import get_settings
 from app.models.traffic import TrafficPrediction
 
 logger = logging.getLogger(__name__)
 
 
 class TrafficService:
+    """Traffic congestion service.
+
+    Uses real TomTom Traffic Flow data when TOMTOM_API_KEY is configured,
+    degrades gracefully to a realistic simulation otherwise.
+    """
+
     def __init__(self):
+        self.settings = get_settings()
+        self._tomtom_cache: dict[str, tuple[float, float]] = {}
+        self._cache_ttl_seconds = 300
         self._historical_data = {}
         self._initialize_historical_patterns()
-
-    def _initialize_historical_patterns(self):
-        self._peak_hours = {
-            0: {"morning": (7, 9), "evening": (17, 19)},
-            1: {"morning": (7, 9), "evening": (17, 19)},
-            2: {"morning": (7, 9), "evening": (17, 19)},
-            3: {"morning": (7, 9), "evening": (17, 19)},
-            4: {"morning": (7, 9), "evening": (17, 19)},
-            5: {"morning": (8, 10), "evening": (16, 18)},
-            6: {"morning": None, "evening": None},
-        }
 
     def get_traffic_congestion(
         self, lat: float, lng: float, timestamp: datetime = None
     ) -> float:
+        if self.settings.tomtom_api_key:
+            real = self._get_tomtom_congestion(lat, lng)
+            if real is not None:
+                return round(real, 3)
+
         if timestamp is None:
             timestamp = datetime.now()
 
@@ -38,6 +45,48 @@ class TrafficService:
 
         congestion = min(1.0, base_congestion * location_factor * random_factor)
         return round(congestion, 3)
+
+    def _get_tomtom_congestion(self, lat: float, lng: float) -> float | None:
+        cache_key = f"{lat:.4f},{lng:.4f}"
+        now = time.time()
+        cached = self._tomtom_cache.get(cache_key)
+        if cached and now - cached[0] < self._cache_ttl_seconds:
+            return cached[1]
+
+        try:
+            url = f"{self.settings.tomtom_base_url}/10/json"
+            params = {
+                "point": f"{lat},{lng}",
+                "key": self.settings.tomtom_api_key,
+            }
+            response = requests.get(url, params=params, timeout=8)
+            response.raise_for_status()
+            data = response.json()
+
+            flow = data.get("flowSegmentData", {})
+            current_speed = flow.get("currentSpeed")
+            free_flow_speed = flow.get("freeFlowSpeed")
+
+            if current_speed is None or free_flow_speed is None or free_flow_speed <= 0:
+                return None
+
+            congestion = max(0.0, min(1.0, 1.0 - current_speed / free_flow_speed))
+            self._tomtom_cache[cache_key] = (now, congestion)
+            return congestion
+        except Exception as e:
+            logger.debug(f"TomTom traffic request failed: {e}")
+            return None
+
+    def _initialize_historical_patterns(self):
+        self._peak_hours = {
+            0: {"morning": (7, 9), "evening": (17, 19)},
+            1: {"morning": (7, 9), "evening": (17, 19)},
+            2: {"morning": (7, 9), "evening": (17, 19)},
+            3: {"morning": (7, 9), "evening": (17, 19)},
+            4: {"morning": (7, 9), "evening": (17, 19)},
+            5: {"morning": (8, 10), "evening": (16, 18)},
+            6: {"morning": None, "evening": None},
+        }
 
     def predict_traffic(
         self, lat: float, lng: float, future_minutes: int = 30

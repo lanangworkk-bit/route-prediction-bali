@@ -269,6 +269,10 @@
                 <button class="preset-btn" onclick="setDestPreset('ubud')">Ubud</button>
             </div>
 
+            <h2>🛑 Titik Singgah <span style="font-weight:normal;color:#999;">(opsional)</span></h2>
+            <div id="waypoints"></div>
+            <button class="preset-btn" onclick="addWaypoint()" style="margin-top:6px;">+ Tambah Titik</button>
+
             <h2>⚙️ Prioritas</h2>
             <div class="radio-group">
                 <div class="radio-btn selected" data-priority="time" onclick="selectPriority(this)">⏱ Tercepat</div>
@@ -336,6 +340,29 @@
             selectedPriority = el.dataset.priority;
         }
 
+        function addWaypoint(lat, lng) {
+            const row = document.createElement('div');
+            row.className = 'coordinate-row';
+            row.style.marginTop = '6px';
+            row.innerHTML = `
+                <input type="text" class="wp-lat" placeholder="Lat" value="${lat || ''}">
+                <input type="text" class="wp-lng" placeholder="Lng" value="${lng || ''}">
+                <button type="button" class="preset-btn" onclick="this.parentNode.remove()">✕</button>
+            `;
+            document.getElementById('waypoints').appendChild(row);
+        }
+
+        function collectWaypoints() {
+            const rows = document.querySelectorAll('#waypoints .coordinate-row');
+            const waypoints = [];
+            rows.forEach(row => {
+                const lat = parseFloat(row.querySelector('.wp-lat').value);
+                const lng = parseFloat(row.querySelector('.wp-lng').value);
+                if (!isNaN(lat) && !isNaN(lng)) waypoints.push({ lat, lng });
+            });
+            return waypoints;
+        }
+
         async function predictRoute() {
             const origin = {
                 lat: parseFloat(document.getElementById('originLat').value),
@@ -345,6 +372,7 @@
                 lat: parseFloat(document.getElementById('destLat').value),
                 lng: parseFloat(document.getElementById('destLng').value)
             };
+            const waypoints = collectWaypoints();
 
             if (isNaN(origin.lat) || isNaN(origin.lng) || isNaN(destination.lat) || isNaN(destination.lng)) {
                 showError('Koordinat tidak valid. Periksa kembali input Anda.');
@@ -364,6 +392,7 @@
                     body: JSON.stringify({
                         origin,
                         destination,
+                        waypoints,
                         preferences: { priority: selectedPriority }
                     })
                 });
@@ -375,7 +404,9 @@
 
                 displayResult(routeData);
 
-                const vizUrl = `${API_BASE}/api/v1/route/visualize?origin_lat=${origin.lat}&origin_lng=${origin.lng}&dest_lat=${destination.lat}&dest_lng=${destination.lng}`;
+                const wpStr = waypoints.map(w => `${w.lat},${w.lng}`).join(';');
+                let vizUrl = `${API_BASE}/api/v1/route/visualize?origin_lat=${origin.lat}&origin_lng=${origin.lng}&dest_lat=${destination.lat}&dest_lng=${destination.lng}`;
+                if (wpStr) vizUrl += `&waypoints=${encodeURIComponent(wpStr)}`;
                 const vizResponse = await fetch(vizUrl);
                 const vizData = await vizResponse.json();
 

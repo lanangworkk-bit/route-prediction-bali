@@ -11,6 +11,11 @@ class Settings(BaseSettings):
     default_lat: float = -8.4095
     default_lng: float = 115.1889
 
+    tomtom_api_key: str = ""
+    tomtom_base_url: str = (
+        "https://api.tomtom.com/traffic/services/4/flowSegmentData/relative"
+    )
+
     osrm_base_url: str = "https://router.project-osrm.org"
     map_load_timeout: int = 30
 

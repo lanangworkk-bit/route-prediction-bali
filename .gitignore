@@ -19,6 +19,11 @@ data/processed/*.html
 data/raw/*
 !data/raw/.gitkeep
 
+# Database
+*.db
+route_prediction.db
+test_route_prediction.db
+
 # IDE
 .vscode/
 .idea/

@@ -23,6 +23,10 @@ class RoutePreferences(BaseModel):
 class RouteRequest(BaseModel):
     origin: Coordinate
     destination: Coordinate
+    waypoints: list[Coordinate] = Field(
+        default_factory=list,
+        description="Optional intermediate stops in order (multi-stop routing)",
+    )
     preferences: RoutePreferences = RoutePreferences()
 
 
@@ -39,5 +43,6 @@ class RouteInfo(BaseModel):
 class RouteResponse(BaseModel):
     best_route: RouteInfo
     alternative_routes: list[RouteInfo]
+    waypoints: list[Coordinate] = []
     weather_summary: dict
     generated_at: str

@@ -90,6 +90,13 @@ class VisualizationService:
             icon=folium.Icon(color="green", icon="play", prefix="fa"),
         ).add_to(map_obj)
 
+        for i, waypoint in enumerate(response.waypoints, start=1):
+            folium.Marker(
+                [waypoint.lat, waypoint.lng],
+                popup=f"<b>Titik Singgah {i}</b>",
+                icon=folium.Icon(color="orange", icon="map-marker", prefix="fa"),
+            ).add_to(map_obj)
+
         folium.Marker(
             [destination.lat, destination.lng],
             popup="<b>Tujuan</b>",

@@ -7,6 +7,16 @@ def validate_route_request(request: RouteRequest) -> RouteRequest:
     if same_lat and same_lng:
         raise ValueError("Origin and destination cannot be the same")
 
+    all_stops = [request.origin, *request.waypoints, request.destination]
+    seen = set()
+    for stop in all_stops:
+        key = (round(stop.lat, 6), round(stop.lng, 6))
+        if key in seen:
+            raise ValueError("Duplicate stop coordinates are not allowed")
+        seen.add(key)
+        if not is_within_bali(stop):
+            raise ValueError("All route stops must be within the Bali coverage area")
+
     return request
 
 

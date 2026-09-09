@@ -118,3 +118,102 @@ def test_predict_route_same_origin_dest():
 
     response = client.post("/api/v1/route/predict", json=request_data)
     assert response.status_code == 400
+
+
+def test_predict_route_with_waypoints(monkeypatch):
+    from app.services import osrm_service
+
+    monkeypatch.setattr(
+        osrm_service.osrm_service, "get_routes", lambda *args, **kwargs: MOCK_ROUTES[:1]
+    )
+
+    request_data = {
+        "origin": {"lat": -8.6500, "lng": 115.2167},
+        "destination": {"lat": -8.3405, "lng": 115.0920},
+        "waypoints": [{"lat": -8.5000, "lng": 115.1500}],
+        "preferences": {"priority": "time"},
+    }
+
+    response = client.post("/api/v1/route/predict", json=request_data)
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["waypoints"]) == 1
+    assert data["waypoints"][0]["lat"] == -8.5000
+
+
+def test_predict_route_duplicate_stop_rejected():
+    request_data = {
+        "origin": {"lat": -8.6500, "lng": 115.2167},
+        "destination": {"lat": -8.3405, "lng": 115.0920},
+        "waypoints": [{"lat": -8.6500, "lng": 115.2167}],
+    }
+
+    response = client.post("/api/v1/route/predict", json=request_data)
+    assert response.status_code == 400
+
+
+def test_predict_route_outside_bali_rejected():
+    request_data = {
+        "origin": {"lat": -6.2000, "lng": 106.8000},
+        "destination": {"lat": -8.3405, "lng": 115.0920},
+    }
+
+    response = client.post("/api/v1/route/predict", json=request_data)
+    assert response.status_code == 400
+
+
+def test_history_records_prediction(monkeypatch):
+    from app.services import osrm_service
+
+    monkeypatch.setattr(
+        osrm_service.osrm_service, "get_routes", lambda *args, **kwargs: MOCK_ROUTES[:1]
+    )
+
+    client.post(
+        "/api/v1/route/predict",
+        json={
+            "origin": {"lat": -8.6500, "lng": 115.2167},
+            "destination": {"lat": -8.3405, "lng": 115.0920},
+        },
+    )
+
+    response = client.get("/api/v1/history")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] >= 1
+    assert data["records"][0]["distance_km"] == 28.4
+
+
+def test_history_stats():
+    response = client.get("/api/v1/history/stats")
+    assert response.status_code == 200
+    data = response.json()
+    assert "total_trips" in data
+    assert "avg_score" in data
+
+
+def test_retrain_models():
+    response = client.post("/api/v1/models/retrain")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert "traffic" in data["report"]
+    assert "route_scorer" in data["report"]
+
+
+def test_visualize_route_with_waypoints(monkeypatch):
+    from app.services import osrm_service
+
+    monkeypatch.setattr(
+        osrm_service.osrm_service, "get_routes", lambda *args, **kwargs: MOCK_ROUTES[:1]
+    )
+
+    response = client.get(
+        "/api/v1/route/visualize"
+        "?origin_lat=-8.6500&origin_lng=115.2167"
+        "&dest_lat=-8.3405&dest_lng=115.0920"
+        "&waypoints=-8.5000,115.1500"
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["route_summary"]["stops"] == 3

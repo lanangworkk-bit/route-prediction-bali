@@ -49,6 +49,8 @@ async def health_check():
         "map_loaded": map_service.is_loaded,
         "traffic_model_trained": traffic_predictor.is_trained,
         "route_model_trained": route_scorer.is_trained,
+        "traffic_source": "tomtom" if settings.tomtom_api_key else "simulation",
+        "weather_source": "openweathermap" if settings.openweathermap_api_key else "mock",
     }
 
 

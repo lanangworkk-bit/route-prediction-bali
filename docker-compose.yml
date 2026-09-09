@@ -1,0 +1,20 @@
+services:
+  route-api:
+    build: .
+    container_name: route-prediction-bali
+    ports:
+      - "9000:9000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - DATABASE_URL=sqlite:////app/data/route_prediction.db
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 40s
+      retries: 3
