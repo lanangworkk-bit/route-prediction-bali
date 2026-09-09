@@ -9,6 +9,7 @@ from app.models.route import (
     RouteResponse,
 )
 from app.services.map_service import map_service
+from app.services.osrm_service import osrm_service
 from app.services.traffic_service import traffic_service
 from app.services.weather_service import weather_service
 
@@ -27,11 +28,7 @@ class RouteOptimizer:
         )
         weather_impact = weather_service.calculate_weather_impact(weather)
 
-        raw_routes = map_service.find_alternative_paths(
-            request.origin,
-            request.destination,
-            num_paths=self.settings.max_alternative_routes + 1,
-        )
+        raw_routes = self._get_route_candidates(request)
 
         scored_routes = []
         for route_data in raw_routes:
@@ -58,6 +55,35 @@ class RouteOptimizer:
             weather_summary=weather_summary,
             generated_at=datetime.now().isoformat(),
         )
+
+    def _get_route_candidates(self, request: RouteRequest) -> list[dict]:
+        """Try real road routing (OSRM), then local map, then straight-line.
+
+        Returns list of route dicts with distance_km, time_minutes, coordinates.
+        """
+        # 1. OSRM real road routes (public API / self-hosted)
+        osrm_routes = osrm_service.get_routes(
+            request.origin,
+            request.destination,
+            alternatives=True,
+            max_routes=self.settings.max_alternative_routes + 1,
+        )
+        if osrm_routes:
+            logger.info(f"Using OSRM routing: {len(osrm_routes)} candidate routes")
+            return osrm_routes
+
+        # 2. Local OSMnx graph (if loaded, e.g. via POST /api/v1/map/load)
+        if map_service.is_loaded:
+            logger.info("Using local OSMnx graph routing")
+            return map_service.find_alternative_paths(
+                request.origin,
+                request.destination,
+                num_paths=self.settings.max_alternative_routes + 1,
+            )
+
+        # 3. Straight-line fallback
+        logger.warning("Using straight-line fallback routing")
+        return [osrm_service.fallback_direct_route(request.origin, request.destination)]
 
     def _score_route(
         self, route_data: dict, weather_speed_factor: float, preferences

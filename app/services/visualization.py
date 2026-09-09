@@ -2,6 +2,14 @@ import folium
 
 from app.config import get_settings
 from app.models.route import RouteInfo, RouteResponse
+from app.services.traffic_service import traffic_service
+
+TRAFFIC_COLORS = {
+    "lancar": "#2E8B57",
+    "normal": "#A9A727",
+    "padat": "#E67E22",
+    "macet": "#C0392B",
+}
 
 
 class VisualizationService:
@@ -22,6 +30,7 @@ class VisualizationService:
         )
 
         self._add_route(m, response.alternative_routes, is_best=False)
+        self._add_traffic_segments(m, best)
         self._add_route(m, [response.best_route], is_best=True)
 
         self._add_markers(m, response)
@@ -29,6 +38,20 @@ class VisualizationService:
         self._add_info_panel(m, response)
 
         return m
+
+    def _add_traffic_segments(self, map_obj: folium.Map, route: RouteInfo):
+        segments = traffic_service.get_segment_traffic(route.coordinates, segments=6)
+        for seg in segments:
+            folium.PolyLine(
+                locations=[
+                    [seg["start"]["lat"], seg["start"]["lng"]],
+                    [seg["end"]["lat"], seg["end"]["lng"]],
+                ],
+                weight=9,
+                color=TRAFFIC_COLORS[seg["level"]],
+                opacity=0.45,
+                popup=f"Lalu lintas: {seg['level']} ({seg['congestion']:.0%})",
+            ).add_to(map_obj)
 
     def _add_route(self, map_obj: folium.Map, routes: list[RouteInfo], is_best: bool):
         color = "#2E8B57" if is_best else "#808080"
@@ -95,6 +118,12 @@ class VisualizationService:
             <p style="margin: 5px 0;"><b>Estimasi:</b> {best.estimated_time_minutes} menit</p>
             <p style="margin: 5px 0;"><b>Skor:</b> {best.overall_score}/100</p>
             <p style="margin: 5px 0;"><b>Lalu Lintas:</b> {best.road_conditions.get('traffic_level', 'N/A')}</p>
+            <hr style="margin: 10px 0;">
+            <p style="margin: 5px 0;"><b>Legenda Lalu Lintas:</b></p>
+            <p style="margin: 3px 0;"><span style="color:#2E8B57;">━</span> Lancar &nbsp;
+            <span style="color:#A9A727;">━</span> Normal &nbsp;
+            <span style="color:#E67E22;">━</span> Padat &nbsp;
+            <span style="color:#C0392B;">━</span> Macet</p>
             <hr style="margin: 10px 0;">
             <p style="margin: 5px 0;"><b>Cuaca:</b> {weather.get('condition', 'N/A')}</p>
             <p style="margin: 5px 0;"><b>Suhu:</b> {weather.get('temperature', 'N/A')}°C</p>

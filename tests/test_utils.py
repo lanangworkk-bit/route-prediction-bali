@@ -1,8 +1,6 @@
-import pytest
-from datetime import datetime
-from app.models.route import Coordinate, RouteRequest, RoutePreferences
+from app.models.route import Coordinate, RouteRequest
 from app.utils.geo import haversine_distance, interpolate_coordinates
-from app.utils.validators import validate_coordinates, is_within_bali
+from app.utils.validators import is_within_bali, validate_coordinates
 
 
 def test_haversine_distance():

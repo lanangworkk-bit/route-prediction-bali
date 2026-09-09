@@ -1,8 +1,8 @@
-import pytest
 from datetime import datetime
+
 from app.ml.feature_engineer import feature_engineer
-from app.ml.traffic_predictor import traffic_predictor
 from app.ml.route_scorer import route_scorer
+from app.ml.traffic_predictor import traffic_predictor
 
 
 def test_feature_engineer_time_features():

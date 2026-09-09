@@ -66,23 +66,53 @@ class TrafficService:
             factors=factors,
         )
 
-    def get_route_traffic_score(self, coordinates: list) -> float:
+    def get_route_traffic_score(self, coordinates: list, samples: int = 8) -> float:
         if not coordinates:
             return 0.0
 
-        total_congestion = 0
-        sample_size = min(5, len(coordinates))
-        step = max(1, len(coordinates) // sample_size)
+        step = max(1, len(coordinates) // samples)
+        discrete = [
+            c for i, c in enumerate(coordinates) if i % step == 0
+        ]
+        discrete = discrete[:samples]
+        if len(discrete) < 2:
+            discrete = [coordinates[0], coordinates[-1]]
 
-        for i in range(0, len(coordinates), step):
-            coord = coordinates[i]
-            congestion = self.get_traffic_congestion(coord.lat, coord.lng)
-            total_congestion += congestion
-
-        avg_congestion = total_congestion / sample_size
+        total_congestion = sum(
+            self.get_traffic_congestion(coord.lat, coord.lng) for coord in discrete
+        )
+        avg_congestion = total_congestion / len(discrete)
         score = 1.0 - avg_congestion
 
         return round(max(0, min(1, score)), 3)
+
+    def get_segment_traffic(self, coordinates: list, segments: int = 5) -> list[dict]:
+        """Return per-segment traffic level for coloring the route on the map."""
+        if not coordinates or len(coordinates) < segments:
+            return []
+
+        result = []
+        step = max(1, (len(coordinates) - 1) // segments)
+        for i in range(0, len(coordinates) - 1, step):
+            start = coordinates[i]
+            end = coordinates[min(i + step, len(coordinates) - 1)]
+            congestion = self.get_traffic_congestion(start.lat, start.lng)
+            result.append({
+                "start": {"lat": start.lat, "lng": start.lng},
+                "end": {"lat": end.lat, "lng": end.lng},
+                "congestion": congestion,
+                "level": self._level_for(congestion),
+            })
+        return result
+
+    def _level_for(self, congestion: float) -> str:
+        if congestion < 0.3:
+            return "lancar"
+        if congestion < 0.55:
+            return "normal"
+        if congestion < 0.75:
+            return "padat"
+        return "macet"
 
     def _get_base_congestion(self, hour: int, day_of_week: int) -> float:
         if day_of_week >= 5:

@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     default_lat: float = -8.4095
     default_lng: float = 115.1889
 
+    osrm_base_url: str = "https://router.project-osrm.org"
+    map_load_timeout: int = 30
+
     database_url: str = "sqlite:///./route_prediction.db"
 
     traffic_weight: float = 0.35
@@ -19,7 +22,6 @@ class Settings(BaseSettings):
     weather_weight: float = 0.15
 
     max_alternative_routes: int = 3
-    map_load_timeout: int = 30
 
     class Config:
         env_file = ".env"

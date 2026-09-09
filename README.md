@@ -4,8 +4,10 @@ Sistem prediksi rute terbaik untuk kendaraan di Bali menggunakan AI yang mempert
 
 ## Fitur Utama
 
+- **Real Road Routing** - Rute di jalan asli lewat OSRM (Open Source Routing Machine), dengan fallback ke OSMnx & garis lurus
 - **Multi-Route Scoring** - Hitung dan bandingkan beberapa rute alternatif
 - **Traffic Prediction** - Prediksi kepadatan lalu lintas berdasarkan waktu dan lokasi
+- **Traffic-Colored Map** - Segmen rute diwarnai per tingkat kepadatan (lancar/normal/padat/macet) pada peta interaktif
 - **Weather Integration** - Integrasi data cuaca untuk penyesuaian rute
 - **Interactive Map** - Visualisasi peta interaktif dengan Folium
 - **ML Models** - Model machine learning untuk prediksi dan scoring
@@ -55,6 +57,10 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 Aplikasi akan berjalan di http://localhost:8000
+
+Routing menggunakan OSRM public server (https://router.project-osrm.org) secara default. Untuk memakai server OSRM sendiri, atur `OSRM_BASE_URL` di `.env`. Jika OSRM tidak tersedia, sistem otomatis fallback ke graph OSMnx lokal atau garis lurus.
+
+> Catatan: Memuat peta OSMnx bersifat opsional dan lambat (unduh dari internet). Gunakan `POST /api/v1/map/load` jika ingin mengaktifkannya sebagai fallback routing.
 
 ## API Endpoints
 
@@ -137,7 +143,7 @@ route-prediction/
 │   ├── main.py              # FastAPI entry point
 │   ├── config.py            # Configuration
 │   ├── models/              # Data models
-│   ├── services/            # Business logic
+│   ├── services/            # Business logic (osrm_service.py: routing jalan nyata)
 │   ├── ml/                  # AI/ML models
 │   ├── api/                 # API endpoints
 │   └── utils/               # Utilities
