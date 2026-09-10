@@ -18,6 +18,14 @@ Sistem prediksi rute terbaik untuk kendaraan di Bali menggunakan AI yang mempert
 - **Layer Peta** - Ganti tampilan: Jalan (OSM/Carto), Satelit (Esri), Medan (OpenTopoMap)
 - **Overlay Lalu Lintas** - Lapisan "Traffic" ala Google Maps (grid kepadatan berwarna) yang bisa dinyalakan/dimatikan
 - **Ekspor & Berbagi Rute** - Unduh GPX/KML, salin tautan rute (URL berisi titik, auto-prediksi saat dibuka)
+- **119 Lokasi Ikonik Bali** - POI kurasi (pura, pantai, air terjun, gunung & danau, kuliner, dll) dengan layer peta per kategori + saran autocomplete (digabung dengan Nominatim). Endpoint: `/pois`, `/pois/categories`, `/pois/near`, `/pois/{id}`
+- **Profil Kendaraan** - Pilih mode kendaraan: 🚗 Mobil, 🏍 Motor, 🚶 Jalan Kaki (waktu ETA & kecepatan disesuaikan otomatis)
+- **Realtime Tracking Live (SSE)** - Mulai tracking perjalanan, perangkat bergerak di peta dengan progress, ETA tersisa & kecepatan live; bagikan tautan `/?track=<id>` agar orang lain ikut memantau
+- **Navigasi Suara Bahasa Indonesia** - Panduan arah dibacakan via SpeechSynthesis (`id-ID`), toggle on/off
+- **Auto-Refresh Lalu Lintas & ETA** - Rute di-refresh otomatis tiap 45 detik (segmen traffic + ETA terbaru tanpa merekam riwayat)
+- **Rute Favorit & Riwayat Terakhir** - Simpan rute dengan nama, muat ulang sekali klik; 5 perjalanan terakhir ditampilkan di panel
+- **Lapor Hambatan Crowdsourced** - Laporkan macet/banjir/tutup jalan langsung dari peta; insiden memengaruhi skor & ETA rute pengguna lain; marker insiden sebar ke peta (TTL 2 jam)
+- **Tombol Lokasi GPS Saya** - Isi otomatis titik awal dengan lokasi perangkat saat ini
 - **Riwayat Trip** - Setiap prediksi tersimpan ke SQLite, dapat di-retrain model dengan data nyata
 - **ML Models** - Model machine learning untuk prediksi dan scoring
 - **Docker Deployment** - Dockerfile + docker-compose untuk produksi
@@ -97,7 +105,8 @@ Content-Type: application/json
   "preferences": {
     "avoid_tolls": false,
     "avoid_highways": false,
-    "priority": "time"
+    "priority": "time",
+    "mode": "motorcycle"
   }
 }
 ```
@@ -111,10 +120,10 @@ GET /api/v1/route/visualize?origin_lat=-8.6500&origin_lng=115.2167&dest_lat=-8.3
 ### Data Rute untuk Peta Live (JSON, GeoJSON-style)
 
 ```http
-GET /api/v1/route/geometry?origin_lat=-8.6500&origin_lng=115.2167&dest_lat=-8.3405&dest_lng=115.0920&waypoints=-8.5000,115.1500
+GET /api/v1/route/geometry?origin_lat=-8.6500&origin_lng=115.2167&dest_lat=-8.3405&dest_lng=115.0920&waypoints=-8.5000,115.1500&mode=car&priority=time
 ```
 
-Mengembalikan `best` + `alternatives` (koordinat, jarak, waktu, skor, **instruksi turn-by-turn**, **rincian per leg**), `traffic_segments` (warna per segmen), dan `weather_summary`.
+Mengembalikan `best` + `alternatives` (koordinat, jarak, waktu, skor, **instruksi turn-by-turn**, **rincian per leg**), `traffic_segments` (warna per segmen), dan `weather_summary`. Parameter `mode` (car|motorcycle|walking) & `priority` opsional.
 
 ### Pencarian Tempat (Autocomplete)
 
@@ -137,7 +146,37 @@ Mengembalikan grid titik dengan tingkat kepadatan untuk lapisan "Traffic" ala Go
 ```http
 GET /api/v1/history             # Daftar prediksi tersimpan
 GET /api/v1/history/stats       # Statistik agregat
+GET /api/v1/history/last?limit=5  # Perjalanan terakhir (untuk UI "Riwayat Terakhir")
 POST /api/v1/models/retrain     # Retrain ML dengan riwayat nyata
+```
+
+### Lokasi Ikonik Bali (POI)
+
+```http
+GET /api/v1/pois                # 119 POI (filter: ?category=pantai, ?q=uluwatu, ?limit=)
+GET /api/v1/pois/categories     # Kategori beserta ikon & label
+GET /api/v1/pois/near?lat=-8.65&lng=115.22&radius_km=15   # POI terdekat
+GET /api/v1/pois/pura-besakih   # Detail per POI
+```
+
+### Insiden Crowdsourced
+
+```http
+GET    /api/v1/incidents?lat=-8.65&lng=115.22&radius_km=30   # List insiden aktif (TTL 2 jam)
+POST   /api/v1/incidents        # {"lat","lng","incident_type","description","reporter"}
+DELETE /api/v1/incidents/{id}   # Tandai selesai
+```
+
+Tipe: `macet`, `banjir`, `tutup_jalan`, `kecelakaan`, `konstruksi`, `lainnya`. Insiden aktif memberi penalti pada skor rute (`incident_penalty`) sehingga rute pengguna lain menyesuaikan.
+
+### Favorit & Tracking Real-time
+
+```http
+GET/POST /api/v1/favorites                # Simpan/muat rute favorit (SQLite)
+PATCH/DELETE /api/v1/favorites/{id}       # Ubah nama / hapus
+POST   /api/v1/track/start                # Mulai tracking -> {session_id, share_url}
+GET    /api/v1/track/{id}/status          # Snapshot posisi & ETA live
+GET    /api/v1/track/{id}/stream          # SSE realtime (data tiap beberapa detik)
 ```
 
 Retrain juga bisa dijalankan sebagai script:

@@ -12,6 +12,7 @@ ignore = [
 
 [lint.per-file-ignores]
 "app/services/visualization.py" = ["E501"]  # HTML template strings
+"app/services/poi_service.py" = ["E501"]    # curated POI dataset (long data lines)
 "app/static/index.html" = ["E501", "F"]     # static asset, not Python
 "demo_visualization.py" = ["E501"]          # console script
 "train_and_demo.py" = ["E501"]              # console script

@@ -7,11 +7,13 @@ from app.models.route import (
     Instruction,
     LegSummary,
     RouteInfo,
+    RouteMode,
     RoutePriority,
     RouteRequest,
     RouteResponse,
 )
 from app.services.history_service import history_service
+from app.services.incident_service import incident_service
 from app.services.map_service import map_service
 from app.services.osrm_service import osrm_service
 from app.services.traffic_service import traffic_service
@@ -19,15 +21,33 @@ from app.services.weather_service import weather_service
 
 logger = logging.getLogger(__name__)
 
+MODE_LABELS = {
+    RouteMode.CAR: "Mobil",
+    RouteMode.MOTORCYCLE: "Motor",
+    RouteMode.WALKING: "Jalan Kaki",
+}
+
+# Durasi OSRM dihitung untuk mobilitas mobil. Faktor koreksi per moda:
+# motor sedikit lebih cepat/lincah; berjalan kaki memakai kecepatan sendiri.
+MODE_TIME_FACTOR = {
+    RouteMode.CAR: 1.0,
+    RouteMode.MOTORCYCLE: 0.85,
+    RouteMode.WALKING: None,  # dihitung dari kecepatan kaki
+}
+WALKING_SPEED_KMH = 4.5
+
 
 class RouteOptimizer:
     def __init__(self):
         self.settings = get_settings()
 
-    async def find_best_route(self, request: RouteRequest) -> RouteResponse:
+    async def find_best_route(
+        self, request: RouteRequest, *, record_history: bool = True
+    ) -> RouteResponse:
         logger.info(
             f"Finding route from {request.origin} to {request.destination}"
             + (f" via {len(request.waypoints)} waypoints" if request.waypoints else "")
+            + f" mode={request.preferences.mode.value}"
         )
 
         weather = await weather_service.get_current_weather(
@@ -56,22 +76,23 @@ class RouteOptimizer:
             "impact": weather_impact.recommendation,
         }
 
-        history_service.record_trip(
-            origin_lat=request.origin.lat,
-            origin_lng=request.origin.lng,
-            dest_lat=request.destination.lat,
-            dest_lng=request.destination.lng,
-            waypoints=request.waypoints,
-            distance_km=best_route.distance_km,
-            estimated_time_minutes=best_route.estimated_time_minutes,
-            overall_score=best_route.overall_score,
-            traffic_score=best_route.traffic_score,
-            weather_impact=best_route.weather_impact,
-            priority=request.preferences.priority.value,
-            traffic_level=best_route.road_conditions.get("traffic_level", ""),
-            weather_condition=weather.condition.value,
-            route_source=route_source,
-        )
+        if record_history:
+            history_service.record_trip(
+                origin_lat=request.origin.lat,
+                origin_lng=request.origin.lng,
+                dest_lat=request.destination.lat,
+                dest_lng=request.destination.lng,
+                waypoints=request.waypoints,
+                distance_km=best_route.distance_km,
+                estimated_time_minutes=best_route.estimated_time_minutes,
+                overall_score=best_route.overall_score,
+                traffic_score=best_route.traffic_score,
+                weather_impact=best_route.weather_impact,
+                priority=request.preferences.priority.value,
+                traffic_level=best_route.road_conditions.get("traffic_level", ""),
+                weather_condition=weather.condition.value,
+                route_source=route_source,
+            )
 
         return RouteResponse(
             best_route=best_route,
@@ -160,9 +181,21 @@ class RouteOptimizer:
         base_time = route_data["time_minutes"]
 
         traffic_score = traffic_service.get_route_traffic_score(route_data["coordinates"])
+        incident_penalty = incident_service.route_penalty(route_data["coordinates"])
+        if incident_penalty:
+            traffic_score = max(0.0, traffic_score - incident_penalty)
+
         traffic_factor = 1.0 + (1.0 - traffic_score) * 0.5
 
-        adjusted_time = base_time * traffic_factor / weather_speed_factor
+        mode = preferences.mode
+        factor = MODE_TIME_FACTOR.get(mode, 1.0)
+        if factor is None:  # walking uses own speed
+            mode_time = (distance_km / WALKING_SPEED_KMH) * 60
+            adjusted_time = mode_time / weather_speed_factor
+        else:
+            adjusted_time = (
+                base_time * traffic_factor / weather_speed_factor * factor
+            )
 
         distance_score = max(0, 1 - (distance_km / 100))
         time_score = max(0, 1 - (adjusted_time / 120))
@@ -210,6 +243,8 @@ class RouteOptimizer:
             road_conditions={
                 "traffic_level": self._get_traffic_level(traffic_score),
                 "weather_condition": self._get_weather_level(weather_speed_factor),
+                "mode_label": MODE_LABELS.get(mode, mode.value),
+                "incident_penalty": round(incident_penalty, 3),
             },
         )
 

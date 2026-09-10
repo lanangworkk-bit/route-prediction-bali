@@ -328,6 +328,193 @@ def test_places_search_empty_query():
     assert response.status_code == 422
 
 
+def test_list_pois():
+    response = client.get("/api/v1/pois", params={"limit": 300})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] >= 100
+    names = {p["name"] for p in data["pois"]}
+    for expected in [
+        "Pura Besakih", "Pantai Kuta", "Air Terjun Gitgit",
+        "Gunung Batur", "Bandara I Gusti Ngurah Rai (DPS)",
+    ]:
+        assert expected in names
+    for p in data["pois"]:
+        assert -8.85 <= p["lat"] <= -8.0
+        assert 114.4 <= p["lng"] <= 115.8
+
+
+def test_pois_filter_category():
+    response = client.get("/api/v1/pois", params={"category": "pantai"})
+    data = response.json()
+    assert data["total"] > 10
+    assert all(p["category"] == "pantai" for p in data["pois"])
+
+
+def test_pois_search_q():
+    response = client.get("/api/v1/pois", params={"q": "uluwatu"})
+    data = response.json()
+    assert any("Uluwatu" in p["name"] for p in data["pois"])
+
+
+def test_pois_categories():
+    response = client.get("/api/v1/pois/categories")
+    data = response.json()
+    cats = {c["id"] for c in data["categories"]}
+    assert {"pura", "pantai", "air_terjun", "kuliner", "kesehatan"} <= cats
+    assert data["categories"][0]["count"] > 0
+
+
+def test_pois_near():
+    response = client.get(
+        "/api/v1/pois/near", params={"lat": -8.65, "lng": 115.22, "radius_km": 15}
+    )
+    data = response.json()
+    assert data["total"] > 5
+    assert all(p["distance_km"] <= 15 for p in data["pois"])
+    assert data["pois"][0]["distance_km"] <= data["pois"][-1]["distance_km"]
+
+
+def test_poi_detail():
+    response = client.get("/api/v1/pois/pura-besakih")
+    assert response.status_code == 200
+    assert response.json()["name"] == "Pura Besakih"
+
+
+def test_poi_not_found():
+    response = client.get("/api/v1/pois/tidak-ada")
+    assert response.status_code == 404
+
+
+def test_incident_flow():
+    report = client.post("/api/v1/incidents", json={
+        "lat": -8.65, "lng": 115.22, "incident_type": "kecelakaan",
+        "description": "Kecelakaan di simpang", "reporter": "test",
+    })
+    assert report.status_code == 200
+    inc_id = report.json()["incident"]["id"]
+
+    listing = client.get("/api/v1/incidents", params={"lat": -8.65, "lng": 115.22})
+    assert listing.status_code == 200
+    assert any(i["id"] == inc_id for i in listing.json()["incidents"])
+
+    ok = client.delete(f"/api/v1/incidents/{inc_id}")
+    assert ok.status_code == 200
+
+    gone = client.delete(f"/api/v1/incidents/{inc_id}")
+    assert gone.status_code == 404
+
+
+def test_incident_route_penalty(monkeypatch):
+    from app.models.route import Coordinate
+    from app.services.incident_service import incident_service
+
+    inc = incident_service.report(-8.65, 115.22, "macet", "uji")
+    try:
+        penalty = incident_service.route_penalty([
+            Coordinate(lat=-8.6501, lng=115.2201),
+            Coordinate(lat=-8.6499, lng=115.2199),
+        ])
+        assert penalty > 0
+    finally:
+        incident_service.resolve(inc.id)
+
+
+def test_favorites_flow():
+    create = client.post("/api/v1/favorites", json={
+        "name": "Pulang Kerja",
+        "origin": {"lat": -8.6525, "lng": 115.2193},
+        "destination": {"lat": -8.5069, "lng": 115.2624},
+        "priority": "traffic",
+        "mode": "motorcycle",
+    })
+    assert create.status_code == 200
+    fav_id = create.json()["favorite"]["id"]
+
+    listing = client.get("/api/v1/favorites")
+    assert listing.status_code == 200
+    assert any(f["id"] == fav_id for f in listing.json()["favorites"])
+
+    updated = client.patch(f"/api/v1/favorites/{fav_id}", params={"name": "Baru"})
+    assert updated.status_code == 200 and updated.json()["name"] == "Baru"
+
+    ok = client.delete(f"/api/v1/favorites/{fav_id}")
+    assert ok.status_code == 200
+    assert client.delete(f"/api/v1/favorites/{fav_id}").status_code == 404
+
+
+def test_favorite_invalid_location_rejected():
+    response = client.post("/api/v1/favorites", json={
+        "name": "Jakarta",
+        "origin": {"lat": -6.2, "lng": 106.8},
+        "destination": {"lat": -8.5069, "lng": 115.2624},
+    })
+    assert response.status_code == 400
+
+
+def test_history_last(monkeypatch):
+    from app.services import osrm_service
+
+    monkeypatch.setattr(
+        osrm_service.osrm_service, "get_routes", lambda *args, **kwargs: MOCK_ROUTES[:1]
+    )
+    client.post("/api/v1/route/predict", json={
+        "origin": {"lat": -8.6525, "lng": 115.2193},
+        "destination": {"lat": -8.5069, "lng": 115.2624},
+        "preferences": {"priority": "time", "mode": "motorcycle"},
+    })
+    response = client.get("/api/v1/history/last", params={"limit": 3})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] >= 1
+    assert data["trips"][0]["origin"]["lat"] == -8.6525
+
+
+def test_predict_with_mode(monkeypatch):
+    from app.services import osrm_service
+
+    monkeypatch.setattr(
+        osrm_service.osrm_service, "get_routes", lambda *args, **kwargs: MOCK_ROUTES[:1]
+    )
+    response = client.post("/api/v1/route/predict", json={
+        "origin": {"lat": -8.6525, "lng": 115.2193},
+        "destination": {"lat": -8.5069, "lng": 115.2624},
+        "preferences": {"priority": "time", "mode": "motorcycle"},
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert data["best_route"]["road_conditions"]["mode_label"] == "Motor"
+    assert data["best_route"]["estimated_time_minutes"] < data["best_route"]["distance_km"] * 3
+
+
+def test_track_start_and_status(monkeypatch):
+    from app.services import osrm_service
+
+    monkeypatch.setattr(
+        osrm_service.osrm_service, "get_routes", lambda *args, **kwargs: MOCK_ROUTES[:1]
+    )
+    start = client.post("/api/v1/track/start", json={
+        "origin": {"lat": -8.6525, "lng": 115.2193},
+        "destination": {"lat": -8.5069, "lng": 115.2624},
+        "mode": "car",
+    })
+    assert start.status_code == 200
+    session_id = start.json()["session_id"]
+    assert start.json()["share_url"].endswith(session_id)
+
+    status = client.get(f"/api/v1/track/{session_id}/status")
+    assert status.status_code == 200
+    snap = status.json()
+    assert snap["status"] == "active"
+    assert snap["progress_percent"] == 0
+    assert snap["position"]["lat"] == -8.65
+
+
+def test_track_status_not_found():
+    response = client.get("/api/v1/track/tidak-ada/status")
+    assert response.status_code == 404
+
+
 def test_visualize_route_with_waypoints(monkeypatch):
     from app.services import osrm_service
 

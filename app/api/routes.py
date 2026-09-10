@@ -1,23 +1,58 @@
+import asyncio
+import json
+
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 
 from app.ml.trainer import retrain_models
 from app.models.route import (
     Coordinate,
     RouteInfo,
+    RouteMode,
     RouteRequest,
     RouteResponse,
 )
 from app.services.area_service import area_service
+from app.services.favorites_service import favorites_service
 from app.services.history_service import history_service
+from app.services.incident_service import incident_service
 from app.services.map_service import map_service
 from app.services.place_service import place_service
+from app.services.poi_service import poi_service
 from app.services.route_optimizer import route_optimizer
+from app.services.track_service import track_service
 from app.services.traffic_service import traffic_service
 from app.services.visualization import visualization_service
 from app.services.weather_service import weather_service
 from app.utils.validators import is_within_bali, validate_route_request
 
 router = APIRouter(prefix="/api/v1", tags=["routes"])
+
+
+class FavoriteCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=60)
+    origin: Coordinate
+    destination: Coordinate
+    waypoints: list[Coordinate] = Field(default_factory=list)
+    priority: str = "time"
+    mode: str = "car"
+
+
+class IncidentCreate(BaseModel):
+    lat: float = Field(..., ge=-90, le=90)
+    lng: float = Field(..., ge=-180, le=180)
+    incident_type: str = "macet"
+    description: str = ""
+    reporter: str = "anonym"
+
+
+class TrackStartRequest(BaseModel):
+    origin: Coordinate
+    destination: Coordinate
+    waypoints: list[Coordinate] = Field(default_factory=list)
+    priority: str = "time"
+    mode: RouteMode = RouteMode.CAR
 
 
 def _handle_validation_error(e: ValueError) -> HTTPException:
@@ -200,12 +235,15 @@ async def route_geometry(
     dest_lat: float = Query(..., ge=-90, le=90),
     dest_lng: float = Query(..., ge=-180, le=180),
     waypoints: str = Query("", description="Optional stops 'lat,lng;lat,lng'"),
+    mode: str = Query("car", description="car | motorcycle | walking"),
+    priority: str = Query("time", description="time | distance | traffic"),
 ):
     """GeoJSON-style route data for live Leaflet rendering (no HTML file)."""
     request = RouteRequest(
         origin=Coordinate(lat=origin_lat, lng=origin_lng),
         destination=Coordinate(lat=dest_lat, lng=dest_lng),
         waypoints=_parse_waypoints(waypoints),
+        preferences={"priority": priority, "mode": mode},
     )
 
     try:
@@ -213,7 +251,7 @@ async def route_geometry(
     except ValueError as e:
         raise _handle_validation_error(e) from e
 
-    response = await route_optimizer.find_best_route(request)
+    response = await route_optimizer.find_best_route(request, record_history=False)
 
     def serialize(route: RouteInfo) -> dict:
         return {
@@ -225,6 +263,8 @@ async def route_geometry(
             "overall_score": route.overall_score,
             "traffic_score": route.traffic_score,
             "traffic_level": route.road_conditions.get("traffic_level", ""),
+            "mode_label": route.road_conditions.get("mode_label", ""),
+            "incident_penalty": route.road_conditions.get("incident_penalty", 0),
             "instructions": [i.model_dump() for i in route.instructions],
             "legs": [leg.model_dump() for leg in route.legs],
         }
@@ -297,3 +337,223 @@ async def retrain():
         raise HTTPException(status_code=500, detail=f"Retraining failed: {e}") from e
 
     return {"status": "ok", "report": report}
+
+
+# ===================== POI (Lokasi Spesifik) =====================
+
+@router.get("/pois")
+async def list_pois(
+    category: str = Query("", description="Filter by category id"),
+    q: str = Query("", description="Search POI name or note"),
+    regency: str = Query("", description="Filter by regency name"),
+    limit: int = Query(50, ge=1, le=300),
+):
+    pois = poi_service.list_pois(
+        category=category or None, q=q, regency=regency or None, limit=limit
+    )
+    return {"total": len(pois), "pois": pois}
+
+
+@router.get("/pois/categories")
+async def poi_categories():
+    return {"categories": poi_service.categories()}
+
+
+@router.get("/pois/near")
+async def pois_near(
+    lat: float = Query(..., ge=-90, le=90),
+    lng: float = Query(..., ge=-180, le=180),
+    radius_km: float = Query(15, ge=1, le=50),
+    limit: int = Query(60, ge=1, le=200),
+):
+    return {
+        "center": {"lat": lat, "lng": lng},
+        "radius_km": radius_km,
+        "total": len(poi_service.near(lat, lng, radius_km, limit)),
+        "pois": poi_service.near(lat, lng, radius_km, limit),
+    }
+
+
+@router.get("/pois/{poi_id}")
+async def get_poi(poi_id: str):
+    poi = poi_service.get(poi_id)
+    if not poi:
+        raise HTTPException(status_code=404, detail="POI not found")
+    return poi
+
+
+# ===================== Insight Crowd =====================
+
+@router.get("/incidents")
+async def list_incidents(
+    lat: float = Query(None, ge=-90, le=90),
+    lng: float = Query(None, ge=-180, le=180),
+    radius_km: float = Query(25, ge=0, le=100),
+):
+    return {
+        "total": len(incident_service.list_incidents(lat, lng, radius_km)),
+        "incidents": incident_service.list_incidents(lat, lng, radius_km),
+    }
+
+
+@router.post("/incidents")
+async def report_incident(body: IncidentCreate):
+    if not is_within_bali(Coordinate(lat=body.lat, lng=body.lng)):
+        raise HTTPException(status_code=400, detail="Location is outside Bali coverage area")
+    incident = incident_service.report(
+        body.lat, body.lng, body.incident_type, body.description, body.reporter
+    )
+    return {"message": "Insiden dilaporkan", "incident": incident.to_dict()}
+
+
+@router.delete("/incidents/{incident_id}")
+async def resolve_incident(incident_id: str):
+    if not incident_service.resolve(incident_id):
+        raise HTTPException(status_code=404, detail="Incident not found")
+    return {"message": "Insiden ditandai selesai"}
+
+
+# ===================== Favorit & Riwayat =====================
+
+@router.get("/history/last")
+async def get_recent_trips(limit: int = Query(5, ge=1, le=20)):
+    records = history_service.get_history(limit=limit)
+    recent = []
+    for r in records:
+        try:
+            waypoints = json.loads(r["waypoints_json"] or "[]")
+        except (ValueError, KeyError, TypeError):
+            waypoints = []
+        recent.append({
+            "id": r["id"],
+            "origin": {"lat": r["origin_lat"], "lng": r["origin_lng"]},
+            "destination": {"lat": r["dest_lat"], "lng": r["dest_lng"]},
+            "waypoints": waypoints,
+            "distance_km": r["distance_km"],
+            "estimated_time_minutes": r["estimated_time_minutes"],
+            "priority": r["priority"],
+            "created_at": r["created_at"],
+        })
+    return {"total": len(recent), "trips": recent}
+
+
+@router.get("/favorites")
+async def list_favorites():
+    return {"favorites": favorites_service.list_all()}
+
+
+@router.post("/favorites")
+async def create_favorite(body: FavoriteCreate):
+    try:
+        validate_route_request(
+            RouteRequest(
+                origin=body.origin,
+                destination=body.destination,
+                waypoints=body.waypoints,
+            )
+        )
+    except ValueError as e:
+        raise _handle_validation_error(e) from e
+    favorite = favorites_service.add(
+        name=body.name,
+        origin_lat=body.origin.lat,
+        origin_lng=body.origin.lng,
+        dest_lat=body.destination.lat,
+        dest_lng=body.destination.lng,
+        waypoints=body.waypoints,
+        priority=body.priority,
+        mode=body.mode,
+    )
+    return {"message": "Rute disimpan ke favorit", "favorite": favorite}
+
+
+@router.patch("/favorites/{favorite_id}")
+async def update_favorite(
+    favorite_id: int,
+    name: str = Query(None, max_length=60),
+    priority: str = Query(None),
+    mode: str = Query(None),
+):
+    favorite = favorites_service.update(favorite_id, name=name, priority=priority, mode=mode)
+    if not favorite:
+        raise HTTPException(status_code=404, detail="Favorite not found")
+    return favorite
+
+
+@router.delete("/favorites/{favorite_id}")
+async def delete_favorite(favorite_id: int):
+    if not favorites_service.delete(favorite_id):
+        raise HTTPException(status_code=404, detail="Favorite not found")
+    return {"message": "Favorit dihapus"}
+
+
+# ===================== Realtime Tracking (SSE) =====================
+
+@router.post("/track/start")
+async def track_start(body: TrackStartRequest):
+    request = RouteRequest(
+        origin=body.origin,
+        destination=body.destination,
+        waypoints=body.waypoints,
+        preferences={
+            "priority": body.priority,
+            "mode": body.mode.value,
+        },
+    )
+    try:
+        validate_route_request(request)
+    except ValueError as e:
+        raise _handle_validation_error(e) from e
+
+    response = await route_optimizer.find_best_route(request, record_history=False)
+    session = track_service.create(
+        request,
+        response.best_route,
+        coordinates=response.best_route.coordinates,
+        instructions=[i.model_dump() for i in response.best_route.instructions],
+    )
+    return {
+        "message": "Sesi tracking dimulai",
+        "session_id": session.session_id,
+        "share_url": track_service.share_url(session.session_id),
+        "snapshot": session.snapshot(),
+    }
+
+
+@router.get("/track/{session_id}/status")
+async def track_status(session_id: str):
+    session = track_service.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Tracking session not found")
+    return session.snapshot()
+
+
+def _sse_event(data: dict) -> str:
+    return f"data: {json.dumps(data)}\n\n"
+
+
+@router.get("/track/{session_id}/stream")
+async def track_stream(session_id: str):
+    session = track_service.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Tracking session not found")
+
+    async def event_generator():
+        while True:
+            snap = session.snapshot()
+            yield _sse_event(snap)
+            if snap["status"] == "arrived":
+                yield _sse_event({"type": "end", **snap})
+                break
+            yield "event: ping\ndata: keepalive\n\n"
+            await asyncio.sleep(5)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )

@@ -14,10 +14,17 @@ class RoutePriority(str, Enum):
     TRAFFIC = "traffic"
 
 
+class RouteMode(str, Enum):
+    CAR = "car"
+    MOTORCYCLE = "motorcycle"
+    WALKING = "walking"
+
+
 class RoutePreferences(BaseModel):
     avoid_tolls: bool = False
     avoid_highways: bool = False
     priority: RoutePriority = RoutePriority.TIME
+    mode: RouteMode = RouteMode.CAR
 
 
 class RouteRequest(BaseModel):

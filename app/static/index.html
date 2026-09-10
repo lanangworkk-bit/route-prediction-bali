@@ -164,6 +164,62 @@
         }
         .legend-item { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
         .legend-color { width: 18px; height: 6px; border-radius: 3px; display: inline-block; }
+        .poi-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+        .poi-chip {
+            font-size: 11px; padding: 4px 8px; border: 1.5px solid #ddd; border-radius: 16px;
+            background: #f8f9fa; cursor: pointer; transition: all 0.2s;
+        }
+        .poi-chip.active { background: #2E8B57; color: white; border-color: #2E8B57; }
+        .mode-label-row { display: flex; gap: 6px; margin-top: 8px; }
+        .mode-btn-opt {
+            flex: 1; text-align: center; padding: 8px 4px; border: 1.5px solid #ddd;
+            border-radius: 8px; font-size: 12px; cursor: pointer; transition: all 0.2s;
+        }
+        .mode-btn-opt.selected { background: #1a6b3c; color: white; border-color: #1a6b3c; }
+        .track-panel {
+            background: #fff3e0; border: 1.5px solid #ef6c00; border-radius: 10px;
+            padding: 12px; margin-top: 12px; font-size: 12px; display: none;
+        }
+        .track-row { display: flex; justify-content: space-between; padding: 3px 0; }
+        .track-row span:last-child { font-weight: 700; color: #ef6c00; }
+        .progress-track {
+            height: 8px; background: #eee; border-radius: 6px; margin: 8px 0; overflow: hidden;
+        }
+        .progress-track > div { height: 100%; background: linear-gradient(90deg, #ef6c00, #c62828); width: 0%; transition: width 1s; }
+        .fav-item, .recent-item {
+            padding: 8px 10px; border: 1px solid #e8e8e8; border-radius: 8px; margin-top: 6px;
+            cursor: pointer; font-size: 12px; transition: background 0.2s;
+        }
+        .fav-item:hover, .recent-item:hover { background: #e8f5e9; }
+        .fav-actions { display: flex; gap: 6px; margin-top: 4px; }
+        .fav-actions button {
+            font-size: 11px; padding: 3px 8px; border: 1px solid #ddd; border-radius: 6px;
+            background: white; cursor: pointer;
+        }
+        .incident-form {
+            background: #fdecea; border: 1.5px solid #c62828; border-radius: 10px;
+            padding: 12px; margin-top: 12px; font-size: 12px; display: none;
+        }
+        .incident-form select, .incident-form input {
+            width: 100%; margin-top: 6px; padding: 8px 10px; border: 1.5px solid #ddd;
+            border-radius: 8px; font-size: 12px;
+        }
+        .voice-toggle {
+            display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px;
+        }
+        .switch { position: relative; width: 38px; height: 20px; display: inline-block; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute; cursor: pointer; inset: 0; background: #ccc; border-radius: 20px;
+            transition: 0.3s;
+        }
+        .slider:before {
+            content: ""; position: absolute; height: 14px; width: 14px; left: 3px; top: 3px;
+            background: white; border-radius: 50%; transition: 0.3s;
+        }
+        .switch input:checked + .slider { background: #2E8B57; }
+        .switch input:checked + .slider:before { transform: translateX(18px); }
+        .incident-marker-note, .poi-note { color: #666; font-size: 11px; }
         @media (max-width: 900px) {
             .container { flex-direction: column; }
             .sidebar { width: 100%; height: auto; }
@@ -181,7 +237,12 @@
                 <button class="mode-btn active" data-mode="origin" onclick="setMode('origin')">📍 Asal</button>
                 <button class="mode-btn" data-mode="dest" onclick="setMode('dest')">🏁 Tujuan</button>
                 <button class="mode-btn" data-mode="waypoint" onclick="setMode('waypoint')">➕ Titik</button>
+                <button class="mode-btn" onclick="openIncidentAtClick()">🚨 Lapor</button>
                 <span class="mode-hint" id="modeHint">Klik peta untuk set titik</span>
+            </div>
+            <div class="map-mode-panel" id="poiPanel" style="top: auto; bottom: 24px; left: 12px; max-width: 300px; display: block;">
+                <div style="font-size:11px;font-weight:700;color:#555;margin-bottom:4px;">📍 Tempat Ikonik Bali</div>
+                <div class="poi-chips" id="poiChips"></div>
             </div>
             <div class="error" id="errorMsg"></div>
             <div class="toast" id="toast"></div>
@@ -212,6 +273,7 @@
                 <button class="preset-btn" onclick="setPreset('origin','denpasar')">Denpasar</button>
                 <button class="preset-btn" onclick="setPreset('origin','kuta')">Kuta</button>
                 <button class="preset-btn" onclick="setPreset('origin','ubud')">Ubud</button>
+                <button class="preset-btn" onclick="useMyLocation()">📡 Lokasi Saya</button>
             </div>
             <div class="search-wrap">
                 <input type="text" id="originSearch" placeholder="🔍 Cari tempat di Bali..." autocomplete="off">
@@ -240,6 +302,20 @@
             <div id="waypoints"></div>
             <button class="preset-btn" onclick="addWaypoint()" style="margin-top:6px;">+ Tambah Titik</button>
 
+            <h2>🏍 Persiapan Perjalanan</h2>
+            <div class="mode-label-row">
+                <div class="mode-btn-opt selected" data-mode="car" onclick="selectMode(this)">🚗 Mobil</div>
+                <div class="mode-btn-opt" data-mode="motorcycle" onclick="selectMode(this)">🏍 Motor</div>
+                <div class="mode-btn-opt" data-mode="walking" onclick="selectMode(this)">🚶 Jalan Kaki</div>
+            </div>
+            <div class="voice-toggle">
+                <span>🔊 Navigasi Suara</span>
+                <label class="switch">
+                    <input type="checkbox" id="voiceToggle">
+                    <span class="slider"></span>
+                </label>
+            </div>
+
             <h2>⚙️ Prioritas</h2>
             <div class="radio-group">
                 <div class="radio-btn selected" data-priority="time" onclick="selectPriority(this)">⏱ Tercepat</div>
@@ -254,6 +330,32 @@
                 <div>Menganalisis rute terbaik...</div>
             </div>
 
+            <div class="track-panel" id="trackPanel">
+                <div class="track-row"><span>🔴 Tracking Live</span><span id="trackStatus">Aktif</span></div>
+                <div class="progress-track"><div id="trackProgress"></div></div>
+                <div class="track-row"><span>Posisi</span><span id="trackKm">0 / 0 km</span></div>
+                <div class="track-row"><span>ETA Tersisa</span><span id="trackEta">-</span></div>
+                <div class="track-row"><span>⚠ Insiden didekati</span><span id="trackIncident">-</span></div>
+                <button class="action-btn" onclick="stopTracking()" style="margin-top:8px;">⏹ Hentikan Tracking</button>
+            </div>
+
+            <div class="incident-form" id="incidentForm">
+                <b>🚨 Laporkan Masalah di Peta</b>
+                <select id="incidentType">
+                    <option value="macet">🚗 Macet</option>
+                    <option value="banjir">🌊 Banjir</option>
+                    <option value="tutup_jalan">⛔ Tutup Jalan</option>
+                    <option value="kecelakaan">💥 Kecelakaan</option>
+                    <option value="konstruksi">🚧 Konstruksi</option>
+                    <option value="lainnya">📢 Lainnya</option>
+                </select>
+                <input type="text" id="incidentDesc" placeholder="Deskripsi singkat (opsional)">
+                <div style="display:flex;gap:6px;margin-top:8px;">
+                    <button class="action-btn" onclick="submitIncident()">Kirim Laporan</button>
+                    <button class="action-btn" onclick="closeIncidentForm()">Batal</button>
+                </div>
+            </div>
+
             <div class="result" id="result">
                 <h3>✅ Rute Terbaik</h3>
                 <div class="result-row"><span>Jarak</span><span id="rDistance">-</span></div>
@@ -264,12 +366,28 @@
                 <div class="result-row"><span>Saran</span><span id="rAdvice">-</span></div>
 
                 <div class="btn-row">
+                    <button class="action-btn" onclick="saveFavorite()">⭐ Simpan</button>
+                    <button class="action-btn" onclick="shareRoute()">🔗 Bagikan</button>
+                    <button class="action-btn" onclick="toggleVoiceGuide()">🔊 Arah</button>
                     <button class="action-btn" onclick="exportGpx()">📥 GPX</button>
                     <button class="action-btn" onclick="exportKml()">📥 KML</button>
-                    <button class="action-btn" onclick="shareRoute()">🔗 Bagikan</button>
+                </div>
+                <div class="btn-row">
+                    <button class="action-btn" onclick="startTracking()" id="trackBtn">🔴 Mulai Tracking Live</button>
+                    <button class="action-btn" onclick="reportIncident()">🚨 Lapor Insiden</button>
                 </div>
 
                 <details>
+                    <summary>🔁 Riwayat Terakhir</summary>
+                    <div id="recentList"></div>
+                </details>
+
+                <details>
+                    <summary>⭐ Rute Favorit</summary>
+                    <div id="favList"></div>
+                </details>
+
+                <details open>
                     <summary>📊 Bandingkan Rute</summary>
                     <table class="compare" id="compareTable"></table>
                 </details>
@@ -291,8 +409,14 @@
         const API_BASE = window.location.origin;
         let selectedPriority = 'time';
         let mode = 'origin';
-        let map, originMarker, destMarker, trafficLayer, routeLayer;
+        let map, originMarker, destMarker, trafficLayer, routeLayer, poiLayer, incidentLayer;
         let routeData = null;
+        let selectedMode = 'car';
+        let voiceEnabled = false;
+        let autoRefreshTimer = null;
+        let trackStream = null, trackMarker = null, trackSessionId = null;
+        let incidentPending = null;
+        let legendControl = null;
         const waypointMarkers = [];
         const waypointCards = [];
 
@@ -319,6 +443,12 @@
             'uturn': '↩', 'roundabout': '🔄', 'rotary': '🔄', 'fork': '🔀',
             'merge': '🔀', 'on ramp': '🛣', 'off ramp': '🛣', 'end of road': '➡',
             'use lane': '↔', 'traffic signal': '🚦',
+        };
+
+        const POI_LABELS = {
+            pura: '🛕', pantai: '🏖', air_terjun: '💦', alam: '🌾',
+            gunung_danau: '⛰', kuliner: '🍜', belanja: '🛍', kesehatan: '🏥',
+            hotel: '🏨', hiburan: '🎭', lainnya: '📍',
         };
 
         function makeDraggableMarker(latlng, color, label) {
@@ -355,6 +485,8 @@
 
             routeLayer = L.layerGroup().addTo(map);
             trafficLayer = L.layerGroup().addTo(map);
+            poiLayer = L.layerGroup().addTo(map);
+            incidentLayer = L.layerGroup().addTo(map);
 
             L.control.layers({
                 'Jalan (OpenStreetMap)': osm,
@@ -364,11 +496,22 @@
             }, {
                 '🚗 Rute': routeLayer,
                 '🚦 Lalu Lintas': trafficLayer,
+                '📍 Tempat Ikonik': poiLayer,
+                '🚧 Insiden': incidentLayer,
             }, { collapsed: true }).addTo(map);
 
             map.on('click', (e) => {
                 const lat = +e.latlng.lat.toFixed(5);
                 const lng = +e.latlng.lng.toFixed(5);
+                if (setModePending === 'incident') {
+                    incidentPending = { lat, lng };
+                    setModePending = null;
+                    L.circleMarker([lat, lng], {
+                        radius: 9, color: '#c62828', weight: 2, fillColor: '#c62828', fillOpacity: 0.4,
+                    }).addTo(incidentLayer).bindTooltip('🚨 Titik insiden', { direction: 'top' }).openTooltip();
+                    showToast('🚨 Titik insiden dipilih. Isi detail lalu kirim.');
+                    return;
+                }
                 if (mode === 'origin') {
                     setCoords('origin', lat, lng);
                     originMarker.setLatLng([lat, lng]);
@@ -446,26 +589,35 @@
                 if (q.length < 2) { suggest.style.display = 'none'; return; }
                 timer = setTimeout(async () => {
                     try {
-                        const res = await fetch(`${API_BASE}/api/v1/places/search?q=${encodeURIComponent(q)}&limit=6`);
-                        if (!res.ok) return;
-                        const data = await res.json();
+                        const [poisRes, placesRes] = await Promise.all([
+                            fetch(`${API_BASE}/api/v1/pois?q=${encodeURIComponent(q)}&limit=5`),
+                            fetch(`${API_BASE}/api/v1/places/search?q=${encodeURIComponent(q)}&limit=4`),
+                        ]);
+                        const poisData = poisRes.ok ? await poisRes.json() : { pois: [] };
+                        const placesData = placesRes.ok ? await placesRes.json() : { results: [] };
                         suggest.innerHTML = '';
-                        if (!data.total) {
+                        const pick = (label, lat, lng) => {
+                            setCoords(side, lat, lng);
+                            const latlng = [lat, lng];
+                            if (side === 'origin') originMarker.setLatLng(latlng);
+                            else destMarker.setLatLng(latlng);
+                            map.setView(latlng, 13);
+                            input.value = label;
+                            suggest.style.display = 'none';
+                            document.getElementById(`${side}Area`).value = '';
+                            clearRoutes();
+                        };
+                        const items = [
+                            ...poisData.pois.map(p => ({ label: `${POI_LABELS[p.category] || '📍'} ${p.name}`, lat: p.lat, lng: p.lng })),
+                            ...placesData.results.map(r => ({ label: `💬 ${r.name} (${r.display_name.slice(0, 40)})`, lat: r.lat, lng: r.lng })),
+                        ];
+                        if (!items.length) {
                             suggest.innerHTML = '<div style="color:#999;">Tidak ditemukan</div>';
                         }
-                        data.results.forEach(r => {
+                        items.slice(0, 8).forEach(it => {
                             const el = document.createElement('div');
-                            el.textContent = `📍 ${r.name} — ${r.display_name.slice(0, 50)}`;
-                            el.onclick = () => {
-                                setCoords(side, r.lat, r.lng);
-                                if (side === 'origin') originMarker.setLatLng([r.lat, r.lng]);
-                                else destMarker.setLatLng([r.lat, r.lng]);
-                                map.setView([r.lat, r.lng], 13);
-                                input.value = r.name;
-                                suggest.style.display = 'none';
-                                document.getElementById(`${side}Area`).value = '';
-                                clearRoutes();
-                            };
+                            el.textContent = it.label;
+                            el.onclick = () => pick(it.label, it.lat, it.lng);
                             suggest.appendChild(el);
                         });
                         suggest.style.display = 'block';
@@ -560,6 +712,7 @@
             routeLayer.clearLayers();
             document.getElementById('result').style.display = 'none';
             routeData = null;
+            stopAutoRefresh();
         }
 
         async function loadTrafficOverlay(lat, lng) {
@@ -594,6 +747,406 @@
             return { origin, destination, waypoints };
         }
 
+        function selectMode(el) {
+            document.querySelectorAll('.mode-btn-opt').forEach(b => b.classList.remove('selected'));
+            el.classList.add('selected');
+            selectedMode = el.dataset.mode;
+        }
+
+        function useMyLocation() {
+            if (!navigator.geolocation) { showError('Geolocation tidak didukung browser'); return; }
+            showToast('📡 Mendeteksi lokasi...');
+            navigator.geolocation.getCurrentPosition((pos) => {
+                const lat = +pos.coords.latitude.toFixed(5);
+                const lng = +pos.coords.longitude.toFixed(5);
+                setCoords('origin', lat, lng);
+                originMarker.setLatLng([lat, lng]);
+                map.setView([lat, lng], 13);
+                clearRoutes();
+                showToast('✅ Lokasi Anda dipakai sebagai titik awal');
+            }, () => showError('Gagal mendeteksi lokasi. Izinkan akses lokasi di browser.'), {
+                enableHighAccuracy: true, timeout: 8000,
+            });
+        }
+
+        // ============ POI Layer ============
+        async function initPoiChips() {
+            try {
+                const res = await fetch(`${API_BASE}/api/v1/pois/categories`);
+                const data = await res.json();
+                const chips = document.getElementById('poiChips');
+                const all = document.createElement('button');
+                all.className = 'poi-chip active';
+                all.textContent = '🏝 Semua';
+                all.onclick = () => setPoiFilter('');
+                chips.appendChild(all);
+                data.categories.forEach(c => {
+                    const b = document.createElement('button');
+                    b.className = 'poi-chip';
+                    b.textContent = `${c.icon} ${c.label}`;
+                    b.onclick = () => setPoiFilter(c.id);
+                    chips.appendChild(b);
+                });
+            } catch (e) { console.error(e); }
+        }
+
+        let poiFilter = '';
+        async function setPoiFilter(cid) {
+            poiFilter = cid;
+            document.querySelectorAll('.poi-chip').forEach(b => b.classList.remove('active'));
+            if (cid === '') {
+                document.querySelector('.poi-chip').classList.add('active');
+            } else {
+                document.querySelectorAll('.poi-chip').forEach(b => {
+                    if (b.textContent.includes(POI_LABELS[cid])) b.classList.add('active');
+                });
+            }
+            await loadPoiLayer();
+        }
+
+        async function loadPoiLayer() {
+            let url = `${API_BASE}/api/v1/pois/near?lat=${map.getCenter().lat}&lng=${map.getCenter().lng}&radius_km=20&limit=80`;
+            if (poiFilter) url += `&category=${poiFilter}`;
+            try {
+                const res = await fetch(url);
+                if (!res.ok) return;
+                const data = await res.json();
+                poiLayer.clearLayers();
+                data.pois.forEach(p => {
+                    const icon = POI_LABELS[p.category] || '📍';
+                    L.marker([p.lat, p.lng], {
+                        icon: L.divIcon({ html: `<span style="font-size:18px;">${icon}</span>`, className: '', iconSize: [20, 20] }),
+                    })
+                        .bindPopup(`<b>${icon} ${p.name}</b><br>${p.note || ''}<br><i>${p.regency}</i><br><button onclick="pickPoi(this)" data-lat="${p.lat}" data-lng="${p.lng}">🚕 Jadikan tujuan</button>`)
+                        .addTo(poiLayer);
+                });
+            } catch (e) { console.error(e); }
+        }
+
+        function pickPoi(el) {
+            const lat = parseFloat(el.dataset.lat), lng = parseFloat(el.dataset.lng);
+            setCoords('dest', lat, lng);
+            destMarker.setLatLng([lat, lng]);
+            closeIncidentForm();
+            showToast('📍 Lokasi dijadikan tujuan');
+        }
+
+        // ============ Insiden Crowd ============
+        function openIncidentAtClick() {
+            incidentPending = null;
+            showIncidentForm();
+            showToast('📌 Setelah form terbuka, klik di peta untuk titik insiden');
+            setModePending = 'incident';
+        }
+        let setModePending = null;
+
+        function showIncidentForm() {
+            document.getElementById('incidentForm').style.display = 'block';
+        }
+        function closeIncidentForm() {
+            document.getElementById('incidentForm').style.display = 'none';
+            incidentPending = null;
+            setModePending = null;
+        }
+
+        function reportIncident() {
+            setMode('waypoint');
+            openIncidentAtClick();
+        }
+
+        async function submitIncident() {
+            if (!incidentPending) { showToast('Klik di peta dulu untuk menandai titik insiden'); return; }
+            const body = {
+                lat: incidentPending.lat,
+                lng: incidentPending.lng,
+                incident_type: document.getElementById('incidentType').value,
+                description: document.getElementById('incidentDesc').value,
+                reporter: 'saya',
+            };
+            try {
+                const res = await fetch(`${API_BASE}/api/v1/incidents`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+                });
+                if (!res.ok) throw new Error((await res.json()).detail);
+                closeIncidentForm();
+                showToast('✅ Insiden dilaporkan. Pengguna lain akan melihatnya.');
+                await loadIncidents();
+            } catch (e) { showError(e.message); }
+        }
+
+        async function loadIncidents() {
+            const c = map.getCenter();
+            try {
+                const res = await fetch(`${API_BASE}/api/v1/incidents?lat=${c.lat}&lng=${c.lng}&radius_km=30`);
+                if (!res.ok) return;
+                const data = await res.json();
+                incidentLayer.clearLayers();
+                data.incidents.forEach(i => {
+                    L.marker([i.lat, i.lng], {
+                        icon: L.divIcon({ html: `<span style="font-size:20px;">${i.icon}</span>`, className: '', iconSize: [22, 22] }),
+                    })
+                        .bindPopup(`<b>${i.icon} ${i.type_label}</b><br>${i.description || ''}<br><i>${i.age_minutes} menit lalu</i>`)
+                        .addTo(incidentLayer);
+                });
+            } catch (e) { console.error(e); }
+        }
+
+        // ============ Favorit & Riwayat ============
+        async function saveFavorite() {
+            const info = getRouteInfo();
+            if (!info) return;
+            const name = prompt('Nama favorit:', `${info.origin.lat},${info.origin.lng} → ${info.destination.lat},${info.destination.lng}`);
+            if (!name) return;
+            try {
+                const res = await fetch(`${API_BASE}/api/v1/favorites`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, ...info, priority: selectedPriority, mode: selectedMode }),
+                });
+                if (!res.ok) throw new Error((await res.json()).detail);
+                showToast('⭐ Rute disimpan ke favorit');
+                await renderFavorites();
+            } catch (e) { showError(e.message); }
+        }
+
+        async function renderFavorites() {
+            try {
+                const res = await fetch(`${API_BASE}/api/v1/favorites`);
+                const data = await res.json();
+                const list = document.getElementById('favList');
+                list.innerHTML = '';
+                if (!data.favorites.length) {
+                    list.innerHTML = '<div class="incident-marker-note">Belum ada favorit. Klik ⭐ Simpan setelah prediksi.</div>';
+                    return;
+                }
+                data.favorites.forEach(f => {
+                    const item = document.createElement('div');
+                    item.className = 'fav-item';
+                    item.innerHTML = `<b>${f.name}</b><div class="incident-marker-note">${f.distance_km ? '' : ''}${f.origin_lat},${f.origin_lng} → ${f.dest_lat},${f.dest_lng}</div>
+                        <div class="fav-actions">
+                            <button onclick="useFavorite(${f.id})">▶ Pakai</button>
+                            <button onclick="deleteFavorite(${f.id})">✕ Hapus</button>
+                        </div>`;
+                    list.appendChild(item);
+                });
+            } catch (e) { console.error(e); }
+        }
+
+        function useFavorite(id) {
+            fetch(`${API_BASE}/api/v1/favorites`)
+                .then(r => r.json())
+                .then(async data => {
+                    const fav = data.favorites.find(f => f.id === id);
+                    if (!fav) return;
+                    setCoords('origin', fav.origin_lat, fav.origin_lng);
+                    setCoords('dest', fav.dest_lat, fav.dest_lng);
+                    originMarker.setLatLng([fav.origin_lat, fav.origin_lng]);
+                    destMarker.setLatLng([fav.dest_lat, fav.dest_lng]);
+                    document.getElementById('waypoints').innerHTML = '';
+                    waypointCards.length = 0;
+                    waypointMarkers.forEach(m => map.removeLayer(m));
+                    waypointMarkers.length = 0;
+                    fav.waypoints.forEach(w => addWaypoint(w.lat, w.lng));
+                    if (fav.priority) {
+                        const btn = document.querySelector(`.radio-btn[data-priority="${fav.priority}"]`);
+                        if (btn) selectPriority(btn);
+                    }
+                    if (fav.mode) {
+                        const mb = document.querySelector(`.mode-btn-opt[data-mode="${fav.mode}"]`);
+                        if (mb) selectMode(mb);
+                    }
+                    predictRoute();
+                });
+        }
+
+        async function deleteFavorite(id) {
+            await fetch(`${API_BASE}/api/v1/favorites/${id}`, { method: 'DELETE' });
+            renderFavorites();
+        }
+
+        async function renderRecent() {
+            try {
+                const res = await fetch(`${API_BASE}/api/v1/history/last?limit=5`);
+                const data = await res.json();
+                const list = document.getElementById('recentList');
+                list.innerHTML = '';
+                if (!data.trips.length) {
+                    list.innerHTML = '<div class="incident-marker-note">Belum ada perjalanan.</div>';
+                    return;
+                }
+                data.trips.forEach(t => {
+                    const item = document.createElement('div');
+                    item.className = 'recent-item';
+                    item.textContent = `${t.origin.lat},${t.origin.lng} → ${t.destination.lat},${t.destination.lng} · ${t.distance_km} km`;
+                    item.onclick = () => {
+                        setCoords('origin', t.origin.lat, t.origin.lng);
+                        setCoords('dest', t.destination.lat, t.destination.lng);
+                        originMarker.setLatLng([t.origin.lat, t.origin.lng]);
+                        destMarker.setLatLng([t.destination.lat, t.destination.lng]);
+                        document.getElementById('waypoints').innerHTML = '';
+                        waypointCards.length = 0;
+                        waypointMarkers.forEach(m => map.removeLayer(m));
+                        waypointMarkers.length = 0;
+                        t.waypoints.forEach(w => addWaypoint(w.lat, w.lng));
+                        if (t.priority) {
+                            const btn = document.querySelector(`.radio-btn[data-priority="${t.priority}"]`);
+                            if (btn) selectPriority(btn);
+                        }
+                        predictRoute();
+                    };
+                    list.appendChild(item);
+                });
+            } catch (e) { console.error(e); }
+        }
+
+        // ============ Navigasi Suara ============
+        function speak(text) {
+            if (!voiceEnabled || !('speechSynthesis' in window)) return;
+            const u = new SpeechSynthesisUtterance(text);
+            u.lang = 'id-ID';
+            u.rate = 0.95;
+            window.speechSynthesis.speak(u);
+        }
+
+        function toggleVoiceGuide() {
+            voiceEnabled = !voiceEnabled;
+            document.getElementById('voiceToggle').checked = voiceEnabled;
+            showToast(voiceEnabled ? '🔊 Navigasi suara AKTIF' : '🔇 Navigasi suara mati');
+            if (voiceEnabled && routeData) {
+                speak('Navigasi dimulai. ' + routeData.best.instructions.map(i => i.instruction).join('. '));
+            }
+        }
+
+        document.getElementById('voiceToggle').addEventListener('change', (e) => {
+            voiceEnabled = e.target.checked;
+        });
+
+        // ============ Realtime Tracking (SSE) ============
+        async function startTracking() {
+            const info = getRouteInfo();
+            if (!info) return;
+            if (trackStream) { showToast('Tracking sudah berjalan'); return; }
+            const body = { ...info, priority: selectedPriority, mode: selectedMode };
+            document.getElementById('trackBtn').disabled = true;
+            try {
+                const res = await fetch(`${API_BASE}/api/v1/track/start`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+                });
+                if (!res.ok) throw new Error((await res.json()).detail);
+                const data = await res.json();
+                trackSessionId = data.session_id;
+                document.getElementById('trackPanel').style.display = 'block';
+                document.getElementById('trackBtn').textContent = '🟢 Tracking Aktif';
+                drawTrackMarker(data.snapshot.position);
+                connectTrackStream(data.session_id);
+                speak('Perjalanan dimulai. Ikuti panduan arah.');
+                showToast('🔗 Link live: ' + window.location.origin + data.share_url);
+            } catch (e) {
+                showError(e.message);
+                document.getElementById('trackBtn').disabled = false;
+            }
+        }
+
+        function drawTrackMarker(pos) {
+            if (trackMarker) map.removeLayer(trackMarker);
+            trackMarker = L.circleMarker([pos.lat, pos.lng], {
+                radius: 11, color: '#fff', weight: 3, fillColor: '#004d99', fillOpacity: 1,
+            })
+                .bindTooltip('📡 Kendaraan Anda', { direction: 'top' })
+                .addTo(map);
+            map.panTo([pos.lat, pos.lng]);
+        }
+
+        function connectTrackStream(sessionId) {
+            trackStream = new EventSource(`${API_BASE}/api/v1/track/${sessionId}/stream`);
+            trackStream.onmessage = (e) => {
+                const snap = JSON.parse(e.data);
+                if (snap.type === 'end') return;
+                renderTrack(snap);
+            };
+            trackStream.onerror = () => {
+                trackStream.close(); trackStream = null;
+                document.getElementById('trackBtn').textContent = '🔴 Mulai Tracking Live';
+                document.getElementById('trackBtn').disabled = false;
+            };
+        }
+
+        let lastSpokenEta = 9999;
+        function renderTrack(snap) {
+            document.getElementById('trackProgress').style.width = snap.progress_percent + '%';
+            document.getElementById('trackKm').textContent = `${snap.completed_km} / ${snap.total_distance_km} km`;
+            document.getElementById('trackEta').textContent = `${snap.eta_minutes} menit tersisa (${snap.speed_kmh} km/jam)`;
+            drawTrackMarker(snap.position);
+
+            if (voiceEnabled && snap.eta_minutes !== lastSpokenEta && snap.eta_minutes % 10 === 0 && snap.eta_minutes > 0) {
+                lastSpokenEta = snap.eta_minutes;
+                speak(`Perkiraan tiba ${snap.eta_minutes} menit lagi.`);
+            }
+
+            if (snap.status === 'arrived') {
+                document.getElementById('trackStatus').textContent = 'Tiba 🏁';
+                document.getElementById('trackProgress').style.width = '100%';
+                document.getElementById('trackEta').textContent = 'Tiba di tujuan';
+                speak('Anda telah tiba di tujuan.');
+                if (trackStream) { trackStream.close(); trackStream = null; }
+                document.getElementById('trackBtn').textContent = '🔴 Mulai Tracking Live';
+                document.getElementById('trackBtn').disabled = false;
+            }
+        }
+
+        function stopTracking() {
+            if (trackStream) { trackStream.close(); trackStream = null; }
+            if (trackMarker) { map.removeLayer(trackMarker); trackMarker = null; }
+            document.getElementById('trackPanel').style.display = 'none';
+            document.getElementById('trackBtn').textContent = '🔴 Mulai Tracking Live';
+            document.getElementById('trackBtn').disabled = false;
+            trackSessionId = null;
+            lastSpokenEta = 9999;
+        }
+
+        // ============ Auto-Refresh (Lalu Lintas & ETA) ============
+        function startAutoRefresh() {
+            stopAutoRefresh();
+            if (trackStream) return;
+            autoRefreshTimer = setInterval(async () => {
+                if (!routeData) return;
+                const info = getRouteInfo();
+                if (!info) return;
+                const wpStr = info.waypoints.map(w => `${w.lat},${w.lng}`).join(';');
+                let url = `${API_BASE}/api/v1/route/geometry?origin_lat=${info.origin.lat}&origin_lng=${info.origin.lng}&dest_lat=${info.destination.lat}&dest_lng=${info.destination.lng}&mode=${selectedMode}&priority=${selectedPriority}`;
+                if (wpStr) url += `&waypoints=${encodeURIComponent(wpStr)}`;
+                try {
+                    const res = await fetch(url);
+                    if (!res.ok) return;
+                    const geom = await res.json();
+                    routeData = geom;
+                    drawRoute(geom);
+                    const predictLike = {
+                        best_route: {
+                            ...geom.best,
+                            coordinates: geom.best.coordinates.map(c => ({ lat: c[1], lng: c[0] })),
+                            road_conditions: {
+                                traffic_level: geom.best.traffic_level,
+                                mode_label: geom.best.mode_label,
+                            },
+                        },
+                        waypoints: info.waypoints,
+                        destination: info.destination,
+                        weather_summary: geom.weather_summary,
+                    };
+                    renderResults(predictLike, geom);
+                } catch (e) { console.error(e); }
+            }, 45000);
+        }
+
+        function stopAutoRefresh() {
+            if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
+        }
+        let loadIncidentsInterval = null;
+        function startIncidentRefresh() {
+            if (loadIncidentsInterval) clearInterval(loadIncidentsInterval);
+            loadIncidentsInterval = setInterval(loadIncidents, 60000);
+        }
+
         async function predictRoute(auto) {
             const info = getRouteInfo();
             if (!info) return;
@@ -609,14 +1162,14 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         origin, destination, waypoints,
-                        preferences: { priority: selectedPriority },
+                        preferences: { priority: selectedPriority, mode: selectedMode },
                     }),
                 });
                 const predictData = await predictResponse.json();
                 if (!predictResponse.ok) throw new Error(predictData.detail || 'Terjadi kesalahan');
 
                 const wpStr = waypoints.map(w => `${w.lat},${w.lng}`).join(';');
-                let geomUrl = `${API_BASE}/api/v1/route/geometry?origin_lat=${origin.lat}&origin_lng=${origin.lng}&dest_lat=${destination.lat}&dest_lng=${destination.lng}`;
+                let geomUrl = `${API_BASE}/api/v1/route/geometry?origin_lat=${origin.lat}&origin_lng=${origin.lng}&dest_lat=${destination.lat}&dest_lng=${destination.lng}&mode=${selectedMode}&priority=${selectedPriority}`;
                 if (wpStr) geomUrl += `&waypoints=${encodeURIComponent(wpStr)}`;
                 const geomResponse = await fetch(geomUrl);
                 const geomData = await geomResponse.json();
@@ -625,6 +1178,8 @@
                 drawRoute(geomData);
                 routeData = geomData;
                 renderResults(predictData, geomData);
+                renderRecent();
+                startAutoRefresh();
 
                 const center = geomData.best.coordinates[Math.floor(geomData.best.coordinates.length / 2)];
                 loadTrafficOverlay(center[1], center[0]);
@@ -668,7 +1223,7 @@
             L.marker([geom.origin.lat, geom.origin.lng], { icon: L.divIcon({ html: '🟢', className: '', iconSize: [22, 22] }) }).addTo(routeLayer);
             L.marker([geom.destination.lat, geom.destination.lng], { icon: L.divIcon({ html: '🔴', className: '', iconSize: [22, 22] }) }).addTo(routeLayer);
 
-            const legend = L.control({ position: 'bottomleft' });
+            const legend = L.control({ position: 'bottomright' });
             legend.onAdd = () => {
                 const div = L.DomUtil.create('div', 'legend');
                 div.innerHTML = Object.entries(TRAFFIC_LEVELS).map(([k, v]) =>
@@ -676,7 +1231,9 @@
                 ).join('');
                 return div;
             };
+            if (legendControl) legendControl.remove();
             legend.addTo(map);
+            legendControl = legend;
         }
 
         function renderResults(predict, geom) {
@@ -724,8 +1281,9 @@
         }
 
         function renderLegsTable(best, predict) {
+            const first = predict.best_route.coordinates?.[0];
             const stops = [
-                { label: 'Asal', lat: predict.best_route.coordinates[0].lat, lng: predict.best_route.coordinates[0].lng },
+                { label: 'Asal', lat: first?.lat ?? 0, lng: first?.lng ?? 0 },
                 ...predict.waypoints.map((w, i) => ({ label: `Titik ${i + 1}`, lat: w.lat, lng: w.lng })),
                 { label: 'Tujuan', lat: predict.destination.lat, lng: predict.destination.lng },
             ];
@@ -805,6 +1363,7 @@ ${best.coordinates.map(c => c[0] + ',' + c[1] + ',0').join('\n')}
             });
             if (wpStr) params.set('wp', wpStr);
             params.set('priority', selectedPriority);
+            params.set('mode', selectedMode);
             const url = `${window.location.origin}${window.location.pathname}?${params.toString()}`;
             try {
                 await navigator.clipboard.writeText(url);
@@ -843,6 +1402,8 @@ ${best.coordinates.map(c => c[0] + ',' + c[1] + ',0').join('\n')}
             const origin = params.get('origin'), dest = params.get('dest');
             const wp = params.get('wp');
             const priority = params.get('priority');
+            const mode = params.get('mode');
+            const track = params.get('track');
             if (origin) {
                 const [lat, lng] = origin.split(',').map(Number);
                 if (!isNaN(lat) && !isNaN(lng)) setCoords('origin', lat, lng);
@@ -861,6 +1422,24 @@ ${best.coordinates.map(c => c[0] + ',' + c[1] + ',0').join('\n')}
                 const btn = document.querySelector(`.radio-btn[data-priority="${priority}"]`);
                 if (btn) selectPriority(btn);
             }
+            if (mode) {
+                const mb = document.querySelector(`.mode-btn-opt[data-mode="${mode}"]`);
+                if (mb) selectMode(mb);
+            }
+            if (track) {
+                fetch(`${API_BASE}/api/v1/track/${track}/status`)
+                    .then(r => r.json())
+                    .then(async s => {
+                        if (!s.status) return;
+                        trackSessionId = track;
+                        drawTrackMarker(s.position);
+                        document.getElementById('trackPanel').style.display = 'block';
+                        document.getElementById('trackBtn').textContent = '🟢 Tracking Aktif';
+                        renderTrack(s);
+                        connectTrackStream(track);
+                    }).catch(() => {});
+                return;
+            }
             if (origin && dest) setTimeout(() => predictRoute(true), 600);
         }
 
@@ -869,6 +1448,12 @@ ${best.coordinates.map(c => c[0] + ',' + c[1] + ',0').join('\n')}
             initAreas();
             addSearchAutocomplete('originSearch', 'originSuggest', 'origin');
             addSearchAutocomplete('destSearch', 'destSuggest', 'dest');
+            initPoiChips();
+            renderRecent();
+            renderFavorites();
+            loadIncidents();
+            startIncidentRefresh();
+            loadPoiLayer();
             applyShareParams();
         });
     </script>
