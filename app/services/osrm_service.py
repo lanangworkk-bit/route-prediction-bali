@@ -8,6 +8,35 @@ from app.utils.geo import haversine_distance
 
 logger = logging.getLogger(__name__)
 
+MODIFIER_TRANSLATIONS = {
+    "left": "Belok kiri",
+    "slight left": "Belok kiri ringan",
+    "sharp left": "Belok kiri tajam",
+    "right": "Belok kanan",
+    "slight right": "Belok kanan ringan",
+    "sharp right": "Belok kanan tajam",
+    "straight": "Lurus",
+    "uturn": "Putar balik",
+    "depart": "Berangkat",
+    "arrive": "Anda telah tiba",
+}
+
+TYPE_TRANSLATIONS = {
+    "depart": "Berangkat",
+    "turn": "Belok",
+    "continue": "Lanjut",
+    "new name": "Lanjut di jalan",
+    "roundabout": "Masuk bundaran",
+    "rotary": "Masuk bundaran",
+    "fork": "Bercabang, ambil jalan",
+    "merge": "Gabung jalan",
+    "on ramp": "Masuk jalan tol",
+    "off ramp": "Keluar jalan tol",
+    "end of road": "Ikuti ujung jalan",
+    "use lane": "Gunakan lajur",
+    "traffic signal": "Ikuti lampu lalu lintas",
+}
+
 
 class OsrmService:
     """Real road routing via OSRM public API (or self-hosted instance).
@@ -43,7 +72,7 @@ class OsrmService:
         params = {
             "overview": "full",
             "geometries": "geojson",
-            "steps": "false",
+            "steps": "true",
             "alternatives": "true" if alternatives else "false",
         }
 
@@ -98,10 +127,55 @@ class OsrmService:
         avg_speed_kmh = 40
         time_minutes = (total_distance / avg_speed_kmh) * 60
 
+        legs = [
+            {
+                "start_lat": a.lat,
+                "start_lng": a.lng,
+                "distance_km": round(haversine_distance(a, b), 2),
+                "time_minutes": round((haversine_distance(a, b) / avg_speed_kmh) * 60, 2),
+                "steps": 1,
+            }
+            for a, b in zip(stops[:-1], stops[1:], strict=False)
+        ]
+
+        instructions = [
+            {
+                "type": "depart",
+                "modifier": "depart",
+                "road_name": "",
+                "instruction": "Berangkat dari titik awal",
+                "distance_km": 0,
+                "time_minutes": 0,
+            },
+            *[
+                {
+                    "type": "continue",
+                    "modifier": "straight",
+                    "road_name": "",
+                    "instruction": "Ikuti jalan lurus menuju titik berikutnya",
+                    "distance_km": round(haversine_distance(a, b), 2),
+                    "time_minutes": round(
+                        (haversine_distance(a, b) / avg_speed_kmh) * 60, 2
+                    ),
+                }
+                for a, b in zip(stops[:-1], stops[1:], strict=False)
+            ],
+            {
+                "type": "arrive",
+                "modifier": "arrive",
+                "road_name": "",
+                "instruction": "Anda telah tiba di tujuan",
+                "distance_km": 0,
+                "time_minutes": 0,
+            },
+        ]
+
         return {
             "distance_km": round(total_distance, 2),
             "time_minutes": round(time_minutes, 2),
             "coordinates": points,
+            "instructions": instructions,
+            "legs": legs,
         }
 
     def _fetch(self, url: str, params: dict) -> list[dict]:
@@ -124,11 +198,57 @@ class OsrmService:
             Coordinate(lat=lng_lat[1], lng=lng_lat[0])
             for lng_lat in route["geometry"]["coordinates"]
         ]
+        instructions = []
+        legs = []
+        for leg in route.get("legs", []):
+            leg_steps = leg.get("steps", [])
+            start_loc = leg_steps[0]["maneuver"]["location"] if leg_steps else None
+            legs.append({
+                "start_lat": start_loc[1] if start_loc else 0,
+                "start_lng": start_loc[0] if start_loc else 0,
+                "distance_km": round(leg.get("distance", 0) / 1000, 2),
+                "time_minutes": round(leg.get("duration", 0) / 60, 2),
+                "steps": len(leg_steps),
+            })
+            for step in leg_steps:
+                maneuver = step.get("maneuver", {})
+                instructions.append({
+                    "type": maneuver.get("type", ""),
+                    "modifier": maneuver.get("modifier", ""),
+                    "road_name": step.get("name", "") or "",
+                    "instruction": self._build_instruction(
+                        maneuver.get("type", ""),
+                        maneuver.get("modifier", ""),
+                        step.get("name", "") or "",
+                    ),
+                    "distance_km": round(step.get("distance", 0) / 1000, 3),
+                    "time_minutes": round(step.get("duration", 0) / 60, 2),
+                })
+
         return {
             "distance_km": round(route["distance"] / 1000, 2),
             "time_minutes": round(route["duration"] / 60, 2),
             "coordinates": coords,
+            "instructions": instructions,
+            "legs": legs,
         }
+
+    @staticmethod
+    def _build_instruction(type_: str, modifier: str, road_name: str) -> str:
+        if type_ == "depart":
+            text = "Berangkat dari titik awal"
+        elif type_ == "arrive":
+            text = "Anda telah tiba di tujuan"
+        elif modifier in MODIFIER_TRANSLATIONS:
+            text = MODIFIER_TRANSLATIONS[modifier]
+        elif type_ in TYPE_TRANSLATIONS:
+            text = TYPE_TRANSLATIONS[type_]
+        else:
+            text = "Lanjut perjalanan"
+
+        if road_name:
+            text += f" menuju/hingga {road_name}"
+        return text
 
     def _synthesize_alternatives(
         self,
@@ -157,7 +277,7 @@ class OsrmService:
             params = {
                 "overview": "full",
                 "geometries": "geojson",
-                "steps": "false",
+                "steps": "true",
                 "alternatives": "false",
             }
 

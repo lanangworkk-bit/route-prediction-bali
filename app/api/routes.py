@@ -1,10 +1,16 @@
 from fastapi import APIRouter, HTTPException, Query
 
 from app.ml.trainer import retrain_models
-from app.models.route import Coordinate, RouteRequest, RouteResponse
+from app.models.route import (
+    Coordinate,
+    RouteInfo,
+    RouteRequest,
+    RouteResponse,
+)
 from app.services.area_service import area_service
 from app.services.history_service import history_service
 from app.services.map_service import map_service
+from app.services.place_service import place_service
 from app.services.route_optimizer import route_optimizer
 from app.services.traffic_service import traffic_service
 from app.services.visualization import visualization_service
@@ -134,6 +140,105 @@ async def visualize_route(
             "score": response.best_route.overall_score,
             "stops": 2 + len(request.waypoints),
         },
+    }
+
+
+@router.get("/places/search")
+async def search_places(
+    q: str = Query(..., min_length=2, description="Place name, e.g. 'Pura Luhur'"),
+    limit: int = Query(5, ge=1, le=10),
+):
+    """Place search (geocoding) restricted to Bali via Nominatim."""
+    results = place_service.search(q, limit=limit)
+    return {"query": q, "total": len(results), "results": results}
+
+
+@router.get("/traffic/overlay")
+async def traffic_overlay(
+    lat: float = Query(..., ge=-90, le=90),
+    lng: float = Query(..., ge=-180, le=180),
+    radius_km: float = Query(12, ge=2, le=50),
+    grid: int = Query(9, ge=3, le=15),
+):
+    """Traffic heat grid around a point (feeds the 'Traffic' map layer)."""
+    if not is_within_bali(Coordinate(lat=lat, lng=lng)):
+        raise HTTPException(
+            status_code=400,
+            detail="Location is outside Bali coverage area",
+        )
+
+    km_per_deg_lat = 111.0
+    dlat = radius_km / km_per_deg_lat
+    dlng = radius_km / (km_per_deg_lat * max(1e-6, abs(lat) or 1e-6))
+
+    points = []
+    for row in range(grid):
+        for col in range(grid):
+            # Spread grid slightly wider than radius for smooth coverage.
+            f = (grid - 1) / 2 if grid > 1 else 1
+            p_lat = lat + dlat * (row - grid / 2 + 0.5) / f
+            p_lng = lng + dlng * (col - grid / 2 + 0.5) / f
+            congestion = traffic_service.get_traffic_congestion(p_lat, p_lng)
+            points.append({
+                "lat": round(p_lat, 5),
+                "lng": round(p_lng, 5),
+                "congestion": congestion,
+                "level": traffic_service._level_for(congestion),
+            })
+
+    return {
+        "center": {"lat": lat, "lng": lng},
+        "radius_km": radius_km,
+        "points": points,
+    }
+
+
+@router.get("/route/geometry")
+async def route_geometry(
+    origin_lat: float = Query(..., ge=-90, le=90),
+    origin_lng: float = Query(..., ge=-180, le=180),
+    dest_lat: float = Query(..., ge=-90, le=90),
+    dest_lng: float = Query(..., ge=-180, le=180),
+    waypoints: str = Query("", description="Optional stops 'lat,lng;lat,lng'"),
+):
+    """GeoJSON-style route data for live Leaflet rendering (no HTML file)."""
+    request = RouteRequest(
+        origin=Coordinate(lat=origin_lat, lng=origin_lng),
+        destination=Coordinate(lat=dest_lat, lng=dest_lng),
+        waypoints=_parse_waypoints(waypoints),
+    )
+
+    try:
+        validate_route_request(request)
+    except ValueError as e:
+        raise _handle_validation_error(e) from e
+
+    response = await route_optimizer.find_best_route(request)
+
+    def serialize(route: RouteInfo) -> dict:
+        return {
+            "coordinates": [
+                [c.lng, c.lat] for c in route.coordinates
+            ],
+            "distance_km": route.distance_km,
+            "estimated_time_minutes": route.estimated_time_minutes,
+            "overall_score": route.overall_score,
+            "traffic_score": route.traffic_score,
+            "traffic_level": route.road_conditions.get("traffic_level", ""),
+            "instructions": [i.model_dump() for i in route.instructions],
+            "legs": [leg.model_dump() for leg in route.legs],
+        }
+
+    return {
+        "origin": {"lat": origin_lat, "lng": origin_lng},
+        "destination": {"lat": dest_lat, "lng": dest_lng},
+        "waypoints": [{"lat": w.lat, "lng": w.lng} for w in response.waypoints],
+        "best": serialize(response.best_route),
+        "alternatives": [serialize(a) for a in response.alternative_routes],
+        "traffic_segments": traffic_service.get_segment_traffic(
+            response.best_route.coordinates, segments=6
+        ),
+        "weather_summary": response.weather_summary,
     }
 
 

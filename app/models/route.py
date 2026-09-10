@@ -30,6 +30,23 @@ class RouteRequest(BaseModel):
     preferences: RoutePreferences = RoutePreferences()
 
 
+class Instruction(BaseModel):
+    type: str = ""
+    modifier: str = ""
+    road_name: str = ""
+    instruction: str
+    distance_km: float = 0
+    time_minutes: float = 0
+
+
+class LegSummary(BaseModel):
+    start_lat: float = 0
+    start_lng: float = 0
+    distance_km: float = 0
+    time_minutes: float = 0
+    steps: int = 0
+
+
 class RouteInfo(BaseModel):
     distance_km: float
     estimated_time_minutes: float
@@ -37,6 +54,8 @@ class RouteInfo(BaseModel):
     weather_impact: float = Field(..., ge=0, le=1)
     overall_score: float = Field(..., ge=0, le=100)
     coordinates: list[Coordinate]
+    instructions: list[Instruction] = []
+    legs: list[LegSummary] = []
     road_conditions: dict = {}
 
 

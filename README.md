@@ -11,8 +11,14 @@ Sistem prediksi rute terbaik untuk kendaraan di Bali menggunakan AI yang mempert
 - **Traffic-Colored Map** - Segmen rute diwarnai per tingkat kepadatan (lancar/normal/padat/macet) pada peta interaktif
 - **Real Traffic Data** - Integrasi TomTom Traffic Flow API bila `TOMTOM_API_KEY` diisi, fallback simulasi bila tidak
 - **Weather Integration** - Integrasi data cuaca untuk penyesuaian rute
+- **Interactive Map** - Peta interaktif Leaflet langsung di halaman utama (bukan iframe): klik peta untuk menempatkan titik, marker bisa digeser (drag), live update
+- **Turn-by-Turn Navigation** - Panduan arah per belokan (OSRM steps) dalam Bahasa Indonesia, ikon manuver, jarak per langkah
+- **Perbandingan Rute** - Tabel banding rute terbaik vs alternatif (jarak, waktu, lalu lintas, skor) + rincian per leg/segmen
+- **Pencarian Tempat (Autocomplete)** - Cari lokasi di Bali via Nominatim dengan saran instan
+- **Layer Peta** - Ganti tampilan: Jalan (OSM/Carto), Satelit (Esri), Medan (OpenTopoMap)
+- **Overlay Lalu Lintas** - Lapisan "Traffic" ala Google Maps (grid kepadatan berwarna) yang bisa dinyalakan/dimatikan
+- **Ekspor & Berbagi Rute** - Unduh GPX/KML, salin tautan rute (URL berisi titik, auto-prediksi saat dibuka)
 - **Riwayat Trip** - Setiap prediksi tersimpan ke SQLite, dapat di-retrain model dengan data nyata
-- **Interactive Map** - Visualisasi peta interaktif dengan Folium
 - **ML Models** - Model machine learning untuk prediksi dan scoring
 - **Docker Deployment** - Dockerfile + docker-compose untuk produksi
 
@@ -101,6 +107,30 @@ Content-Type: application/json
 ```http
 GET /api/v1/route/visualize?origin_lat=-8.6500&origin_lng=115.2167&dest_lat=-8.3405&dest_lng=115.0920&waypoints=-8.7930,115.2280
 ```
+
+### Data Rute untuk Peta Live (JSON, GeoJSON-style)
+
+```http
+GET /api/v1/route/geometry?origin_lat=-8.6500&origin_lng=115.2167&dest_lat=-8.3405&dest_lng=115.0920&waypoints=-8.5000,115.1500
+```
+
+Mengembalikan `best` + `alternatives` (koordinat, jarak, waktu, skor, **instruksi turn-by-turn**, **rincian per leg**), `traffic_segments` (warna per segmen), dan `weather_summary`.
+
+### Pencarian Tempat (Autocomplete)
+
+```http
+GET /api/v1/places/search?q=Pura Luhur Uluwatu&limit=5
+```
+
+Pencarian terbatas di area Bali via OpenStreetMap Nominatim.
+
+### Overlay Lalu Lintas (Grid Kepadatan)
+
+```http
+GET /api/v1/traffic/overlay?lat=-8.6500&lng=115.2193&grid=11&radius_km=15
+```
+
+Mengembalikan grid titik dengan tingkat kepadatan untuk lapisan "Traffic" ala Google Maps.
 
 ### Riwayat & Retrain Model
 

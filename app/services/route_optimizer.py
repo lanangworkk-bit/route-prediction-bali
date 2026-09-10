@@ -4,6 +4,8 @@ from datetime import datetime
 from app.config import get_settings
 from app.models.route import (
     Coordinate,
+    Instruction,
+    LegSummary,
     RouteInfo,
     RoutePriority,
     RouteRequest,
@@ -203,6 +205,8 @@ class RouteOptimizer:
             weather_impact=weather_speed_factor,
             overall_score=round(min(100, max(0, overall_score)), 2),
             coordinates=route_data["coordinates"],
+            instructions=[Instruction(**i) for i in route_data.get("instructions", [])],
+            legs=[LegSummary(**leg_data) for leg_data in route_data.get("legs", [])],
             road_conditions={
                 "traffic_level": self._get_traffic_level(traffic_score),
                 "weather_condition": self._get_weather_level(weather_speed_factor),

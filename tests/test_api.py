@@ -232,6 +232,102 @@ def test_retrain_models():
     assert "route_scorer" in data["report"]
 
 
+def test_route_geometry_endpoint(monkeypatch):
+    from app.services import osrm_service
+
+    monkeypatch.setattr(
+        osrm_service.osrm_service, "get_routes", lambda *args, **kwargs: MOCK_ROUTES
+    )
+
+    response = client.get(
+        "/api/v1/route/geometry"
+        "?origin_lat=-8.6500&origin_lng=115.2167"
+        "&dest_lat=-8.3405&dest_lng=115.0920"
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "best" in data
+    assert len(data["alternatives"]) == 1
+    assert data["best"]["coordinates"][0] == [115.2167, -8.6500]
+    assert "traffic_segments" in data
+    assert "waypoints" in data and data["waypoints"] == []
+
+
+def test_route_geometry_with_waypoints(monkeypatch):
+    from app.services import osrm_service
+
+    monkeypatch.setattr(
+        osrm_service.osrm_service, "get_routes", lambda *args, **kwargs: MOCK_ROUTES[:1]
+    )
+
+    response = client.get(
+        "/api/v1/route/geometry"
+        "?origin_lat=-8.6500&origin_lng=115.2167"
+        "&dest_lat=-8.3405&dest_lng=115.0920"
+        "&waypoints=-8.5000,115.1500"
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["waypoints"]) == 1
+    assert data["waypoints"][0]["lat"] == -8.5000
+
+
+def test_route_geometry_rejects_sample_integration():
+    response = client.get(
+        "/api/v1/route/geometry"
+        "?origin_lat=-6.2000&origin_lng=106.8000"
+        "&dest_lat=-8.3405&dest_lng=115.0920"
+    )
+    assert response.status_code == 400
+
+
+def test_traffic_overlay_endpoint():
+    response = client.get(
+        "/api/v1/traffic/overlay", params={"lat": -8.65, "lng": 115.2167, "grid": 5}
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["points"]) == 25
+    for point in data["points"]:
+        assert 0 <= point["congestion"] <= 1
+        assert point["level"] in ("lancar", "normal", "padat", "macet")
+
+
+def test_traffic_overlay_outside_bali_rejected():
+    response = client.get(
+        "/api/v1/traffic/overlay", params={"lat": -6.2, "lng": 106.8}
+    )
+    assert response.status_code == 400
+
+
+def test_places_search(monkeypatch):
+    from app.services import place_service
+
+    def fake_search(query, limit=5):
+        return [
+            {
+                "name": "Kuta",
+                "display_name": "Kuta, Badung, Bali, Indonesia",
+                "lat": -8.7234,
+                "lng": 115.1723,
+                "type": "town",
+            }
+        ]
+
+    monkeypatch.setattr(place_service.place_service, "search", fake_search)
+
+    response = client.get("/api/v1/places/search", params={"q": "kuta"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert data["results"][0]["name"] == "Kuta"
+
+
+def test_places_search_empty_query():
+    response = client.get("/api/v1/places/search", params={"q": ""})
+    assert response.status_code == 422
+
+
 def test_visualize_route_with_waypoints(monkeypatch):
     from app.services import osrm_service
 
