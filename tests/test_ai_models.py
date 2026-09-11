@@ -19,7 +19,8 @@ def _rows(n: int = 40) -> list[dict]:
             "hour": i % 24,
             "day_of_week": i % 7,
             "is_peak": 1 if 7 <= i % 24 <= 9 or 17 <= i % 24 <= 19 else 0,
-            "estimated_time_minutes": dist * 2.0 + (i % 5),
+            "mode_factor": [1.0, 0.85, 4.0][i % 3],
+            "estimated_time_minutes": dist * 2.0 * [1.0, 0.85, 4.0][i % 3] + (i % 5),
         })
     return rows
 
@@ -33,6 +34,7 @@ def test_travel_time_not_trained_by_default():
         "hour": 8,
         "day_of_week": 0,
         "is_peak": 1,
+        "mode_factor": 1.0,
     }) is None
 
 
@@ -49,6 +51,7 @@ def test_travel_time_trains_and_predicts():
         "hour": 8,
         "day_of_week": 0,
         "is_peak": 1,
+        "mode_factor": 1.0,
     })
     assert pred is not None and pred > 0
     assert model.blend_weight() > 0 and model.blend_weight() <= 1.0
@@ -84,6 +87,7 @@ def test_travel_time_clock_features_match_history_feature_set():
         "hour",
         "day_of_week",
         "is_peak",
+        "mode_factor",
     ]
     assert now.hour in range(24)
 

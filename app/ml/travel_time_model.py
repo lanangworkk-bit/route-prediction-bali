@@ -3,7 +3,6 @@ import os
 import time
 
 import joblib
-import numpy as np
 import pandas as pd
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.metrics import mean_absolute_error, r2_score
@@ -21,7 +20,13 @@ FEATURE_COLS = [
     "hour",
     "day_of_week",
     "is_peak",
+    "mode_factor",
 ]
+
+# Outlier guards (menit/km) — di luar batas ini dianggap data rusak/multi-route.
+MAX_MIN_PER_KM = 60.0
+MAX_TRIP_MINUTES = 900.0
+MAX_TRIP_KM = 200.0
 
 
 class TravelTimeModel:
@@ -64,6 +69,9 @@ class TravelTimeModel:
             for r in rows
             if r.get("distance_km") and r.get("estimated_time_minutes")
             and r["distance_km"] > 0
+            and 0 < r["estimated_time_minutes"] <= MAX_TRIP_MINUTES
+            and r["distance_km"] <= MAX_TRIP_KM
+            and r["estimated_time_minutes"] / r["distance_km"] <= MAX_MIN_PER_KM
         ]
         if len(clean) < 5:
             logger.info(
@@ -113,8 +121,8 @@ class TravelTimeModel:
         if not self.can_predict():
             return None
         try:
-            row = np.array([features[c] for c in FEATURE_COLS]).reshape(1, -1)
-            pred = float(self.model.predict(row)[0])
+            frame = pd.DataFrame([{c: features[c] for c in FEATURE_COLS}])
+            pred = float(self.model.predict(frame)[0])
             return max(1.0, round(pred, 2))
         except (KeyError, TypeError, ValueError) as e:
             logger.debug(f"Travel-time predict failed: {e}")

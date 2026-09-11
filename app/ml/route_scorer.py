@@ -77,9 +77,19 @@ class RouteScorer:
         features = np.array(
             [[distance_km, time_minutes, traffic_score, weather_impact, road_quality]]
         )
+        frame = pd.DataFrame(
+            features,
+            columns=[
+                "distance_km",
+                "time_minutes",
+                "traffic_score",
+                "weather_impact",
+                "road_quality",
+            ],
+        )
 
-        prediction = self.model.predict(features)[0]
-        probabilities = self.model.predict_proba(features)[0]
+        prediction = self.model.predict(frame)[0]
+        probabilities = self.model.predict_proba(frame)[0]
 
         score_map = {0: 25, 1: 50, 2: 75, 3: 95}
         base_score = score_map.get(prediction, 50)

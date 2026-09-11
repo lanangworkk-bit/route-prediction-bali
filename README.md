@@ -191,7 +191,9 @@ Retrain juga bisa dijalankan sebagai script:
 python scripts/retrain.py --min-samples 10
 ```
 
-Model akan diblend dengan data riwayat hanya jika jumlah sampel riwayat ≥ `--min-samples`.
+Model akan diblend dengan data riwayat hanya jika jumlah sampel riwayat ≥ `--min-samples`. Saat melatih, trip multi-stop (waypoint) disaring agar tidak mencemari pembelajaran ETA per-leg, dan outlier (waktu/jarak tak wajar) dibuang.
+
+Prediksi ML dibatasi (clamp 0.6x–1.8x waktu heuristik) sehingga tidak pernah menghasilkan ETA liar; fitur `mode_factor` memastikan model membedakan mobil, motor, dan jalan kaki.
 
 ### AI Models & Konfigurasi
 

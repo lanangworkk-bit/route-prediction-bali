@@ -9,6 +9,10 @@ from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+# Kunci peluasan waktu relatif terhadap mobil, dipakai sebagai fitur saat
+# melatih travel-time AI (walking jauh lebih lambat dari motor).
+MODE_SPEED_FACTOR = {"car": 1.0, "motorcycle": 0.85, "walking": 4.0}
+
 
 class HistoryService:
     """Persist every route prediction to SQLite for auditing and ML retraining."""
@@ -58,11 +62,15 @@ class HistoryService:
                 priority TEXT,
                 traffic_level TEXT,
                 weather_condition TEXT,
+                mode TEXT DEFAULT 'car',
                 route_source TEXT,
                 created_at TEXT NOT NULL
             )
             """
         )
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(trip_history)").fetchall()]
+        if "mode" not in cols:
+            conn.execute("ALTER TABLE trip_history ADD COLUMN mode TEXT DEFAULT 'car'")
         conn.commit()
 
     def record_trip(
@@ -82,6 +90,7 @@ class HistoryService:
         traffic_level: str,
         weather_condition: str,
         route_source: str,
+        mode: str = "car",
     ):
         conn = self._connect()
         try:
@@ -91,8 +100,8 @@ class HistoryService:
                     origin_lat, origin_lng, dest_lat, dest_lng, waypoints_json,
                     distance_km, estimated_time_minutes, overall_score,
                     traffic_score, weather_impact, priority, traffic_level,
-                    weather_condition, route_source, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    weather_condition, mode, route_source, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     origin_lat,
@@ -110,6 +119,7 @@ class HistoryService:
                     priority,
                     traffic_level,
                     weather_condition,
+                    mode,
                     route_source,
                     datetime.now().isoformat(),
                 ),
@@ -138,10 +148,15 @@ class HistoryService:
                 dt = datetime.fromisoformat(row["created_at"])
             except (ValueError, TypeError):
                 dt = datetime.now()
+            waypoints = json.loads(row["waypoints_json"] or "[]")
             distance = row["distance_km"]
             est_time = row["estimated_time_minutes"]
             if not distance or not est_time or distance <= 0:
                 continue
+            # Multi-stop trips distort single-leg ETA learning.
+            if waypoints:
+                continue
+            mode = row["mode"] or "car"
             hour = dt.hour
             day = dt.weekday()
             out.append({
@@ -151,6 +166,7 @@ class HistoryService:
                 "hour": hour,
                 "day_of_week": day,
                 "is_peak": 1 if (7 <= hour <= 9 or 17 <= hour <= 19) else 0,
+                "mode_factor": MODE_SPEED_FACTOR.get(mode, 1.0),
                 "estimated_time_minutes": est_time,
             })
         return out

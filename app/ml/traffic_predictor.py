@@ -76,7 +76,10 @@ class TrafficPredictor:
             timestamp, lat, lng, temperature, humidity, wind_speed, visibility
         )
 
-        prediction = self.model.predict(features)[0]
+        frame = pd.DataFrame(
+            [features[0]], columns=feature_engineer.feature_names
+        )
+        prediction = self.model.predict(frame)[0]
         return float(np.clip(prediction, 0, 1))
 
     def _fallback_prediction(self, timestamp, lat: float, lng: float) -> float:

@@ -94,6 +94,7 @@ class RouteOptimizer:
                 traffic_level=best_route.road_conditions.get("traffic_level", ""),
                 weather_condition=weather.condition.value,
                 route_source=route_source,
+                mode=request.preferences.mode.value,
             )
             registry.maybe_auto_retrain(history_service.get_count())
 
@@ -217,11 +218,15 @@ class RouteOptimizer:
                 "hour": now.hour,
                 "day_of_week": now.weekday(),
                 "is_peak": 1 if (7 <= now.hour <= 9 or 17 <= now.hour <= 19) else 0,
+                "mode_factor": factor,
             })
             ai_weight = travel_time_model.blend_weight()
             if ai_pred is not None and ai_weight > 0:
-                ai_time = ai_pred * factor
-                adjusted_time = adjusted_time * (1 - ai_weight) + ai_time * ai_weight
+                # Jaga dari estimasi ML yang liar (sedikit sampel): batasi
+                # prediksi ke rentang 0.6x..1.8x waktu heuristik.
+                lo, hi = adjusted_time * 0.6, adjusted_time * 1.8
+                ai_time = min(max(ai_pred, lo), hi)
+                blended = adjusted_time * (1 - ai_weight) + ai_time * ai_weight
                 ai_block = {
                     "model_active": True,
                     "blend_weight": ai_weight,
@@ -229,6 +234,7 @@ class RouteOptimizer:
                     "predicted_minutes": round(ai_time, 2),
                     "heuristic_minutes": round(adjusted_time, 2),
                 }
+                adjusted_time = blended
 
         distance_score = max(0, 1 - (distance_km / 100))
         time_score = max(0, 1 - (adjusted_time / 120))

@@ -6,6 +6,7 @@ os.environ["TOMTOM_API_KEY"] = ""
 os.environ["OPENWEATHERMAP_API_KEY"] = ""
 
 import pytest
+
 from app.ml import travel_time_model as tt_model
 
 
