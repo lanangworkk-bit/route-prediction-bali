@@ -39,6 +39,61 @@ MODE_TIME_FACTOR = {
 WALKING_SPEED_KMH = 4.5
 
 
+def realtime_eta(
+    distance_km: float,
+    base_time_minutes: float,
+    coordinates: list,
+    weather_speed_factor: float,
+    mode: RouteMode,
+) -> dict:
+    """Ringan & sinkron: hitung ulang ETA dengan traffic/insiden/AI terbaru
+    untuk SSE realtime (tanpa re-routing OSRM berat)."""
+    coordinates = [Coordinate(lat=c.get("lat", 0), lng=c.get("lng", 0)) for c in coordinates]
+    traffic_score = traffic_service.get_route_traffic_score(coordinates)
+    incident_penalty = incident_service.route_penalty(coordinates)
+    if incident_penalty:
+        traffic_score = max(0.0, traffic_score - incident_penalty)
+
+    traffic_factor = 1.0 + (1.0 - traffic_score) * 0.5
+
+    factor = MODE_TIME_FACTOR.get(mode, 1.0)
+    if factor is None:  # walking
+        adjusted = (distance_km / WALKING_SPEED_KMH) * 60 / weather_speed_factor
+    else:
+        adjusted = base_time_minutes * traffic_factor / weather_speed_factor * factor
+
+    ai = {"model_active": False, "blend_weight": 0.0, "predicted_minutes": None}
+    if factor is not None:
+        now = datetime.now()
+        ai_pred = travel_time_model.predict({
+            "distance_km": distance_km,
+            "traffic_score": traffic_score,
+            "weather_impact": weather_speed_factor,
+            "hour": now.hour,
+            "day_of_week": now.weekday(),
+            "is_peak": 1 if (7 <= now.hour <= 9 or 17 <= now.hour <= 19) else 0,
+            "mode_factor": factor,
+        })
+        ai_weight = travel_time_model.blend_weight()
+        if ai_pred is not None and ai_weight > 0:
+            lo, hi = adjusted * 0.6, adjusted * 1.8
+            ai_pred = min(max(ai_pred, lo), hi)
+            adjusted = adjusted * (1 - ai_weight) + ai_pred * ai_weight
+            ai = {"model_active": True, "blend_weight": ai_weight,
+                  "predicted_minutes": round(ai_pred, 2)}
+
+    return {
+        "eta_minutes": round(adjusted, 2),
+        "traffic_score": round(traffic_score, 3),
+        "traffic_level": "Lancar" if traffic_score >= 0.8 else (
+            "Padat" if traffic_score >= 0.6 else ("Macet" if traffic_score < 0.4 else "Normal")
+        ),
+        "incident_penalty": round(incident_penalty, 3),
+        "congestion_source": traffic_service.congestion_source(),
+        "ai": ai,
+    }
+
+
 class RouteOptimizer:
     def __init__(self):
         self.settings = get_settings()

@@ -315,6 +315,32 @@ def test_realtime_traffic_sse():
     assert "event: traffic" in text
 
 
+def test_realtime_route_sse():
+    import asyncio
+
+    from app.api import routes as route_mod
+
+    async def run():
+        response = await route_mod.realtime_route(
+            origin_lat=-8.65, origin_lng=115.22,
+            dest_lat=-8.51, dest_lng=115.26,
+            distance_km=20.0, base_minutes=30.0,
+            coords="-8.65,115.22;-8.60,115.25;-8.51,115.26",
+            interval_s=2,
+        )
+        iterator = response.body_iterator.__aiter__()
+        try:
+            chunk = await asyncio.wait_for(iterator.__anext__(), timeout=3)
+        finally:
+            await iterator.aclose()
+        return chunk
+
+    chunk = asyncio.run(run())
+    text = chunk.decode() if isinstance(chunk, bytes) else chunk
+    assert "event: route" in text
+    assert '"eta_minutes"' in text
+
+
 def test_route_geometry_endpoint(monkeypatch):
     from app.services import osrm_service
 

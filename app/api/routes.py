@@ -1,5 +1,6 @@
 import asyncio
 import json
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -11,6 +12,7 @@ from app.models.route import (
     Coordinate,
     RouteInfo,
     RouteMode,
+    RoutePriority,
     RouteRequest,
     RouteResponse,
 )
@@ -22,7 +24,7 @@ from app.services.map_service import map_service
 from app.services.place_service import place_service
 from app.services.poi_service import poi_service
 from app.services.realtime_feed import incident_feed
-from app.services.route_optimizer import route_optimizer
+from app.services.route_optimizer import realtime_eta, route_optimizer
 from app.services.track_service import track_service
 from app.services.traffic_service import traffic_service
 from app.services.visualization import visualization_service
@@ -431,6 +433,82 @@ async def realtime_traffic(
             })
             yield "event: ping\ndata: keepalive\n\n"
             await asyncio.sleep(interval)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+def _parse_coords(s: str) -> list[Coordinate]:
+    pts = []
+    for part in (s or "").split(";"):
+        bits = part.split(",")
+        if len(bits) == 2:
+            try:
+                pts.append(Coordinate(lat=float(bits[0]), lng=float(bits[1])))
+            except ValueError:
+                continue
+    return pts
+
+
+@router.get("/realtime/route")
+async def realtime_route(
+    origin_lat: float = Query(...),
+    origin_lng: float = Query(...),
+    dest_lat: float = Query(...),
+    dest_lng: float = Query(...),
+    distance_km: float = Query(...),
+    base_minutes: float = Query(...),
+    coords: str = Query("", description="sampel koordinat rute: lat,lng;lat,lng;..."),
+    mode: RouteMode = RouteMode.CAR,
+    priority: RoutePriority = RoutePriority.TIME,
+    interval_s: float = Query(None, ge=2, le=300),
+):
+    """SSE feed: live ETA untuk rute aktif (recompute traffic/insiden/AI tanpa re-routing).
+
+    Client mengirim sampel koordinat jalur; tiap denyut server menghitung ulang
+    traffic_score, penalti insiden, dan ETA (termasuk blend AI) lalu push.
+    """
+    if not (is_within_bali(Coordinate(lat=origin_lat, lng=origin_lng))
+            and is_within_bali(Coordinate(lat=dest_lat, lng=dest_lng))):
+        raise HTTPException(status_code=400, detail="Route is outside Bali coverage area")
+    points = _parse_coords(coords)
+    if len(points) < 2:
+        raise HTTPException(status_code=400, detail="coords (sampel jalur) wajib diisi")
+    if distance_km <= 0 or base_minutes <= 0:
+        raise HTTPException(status_code=400, detail="distance_km & base_minutes harus > 0")
+    interval = interval_s or get_settings().realtime_traffic_interval_s
+
+    async def event_generator():
+        weather = await weather_service.get_current_weather(origin_lat, origin_lng)
+        wf = weather_service.calculate_weather_impact(weather).speed_factor
+        try:
+            while True:
+                pulse = realtime_eta(
+                    distance_km, base_minutes,
+                    [{"lat": p.lat, "lng": p.lng} for p in points],
+                    wf, mode,
+                )
+                yield _sse_event({
+                    "event": "route",
+                    "type": "route_pulse",
+                    "payload": {
+                        **pulse,
+                        "mode": mode.value,
+                        "priority": priority.value,
+                        "updated_at": datetime.now().isoformat(),
+                    },
+                })
+                yield "event: ping\ndata: keepalive\n\n"
+                await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            raise
 
     return StreamingResponse(
         event_generator(),

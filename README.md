@@ -34,7 +34,7 @@ Sistem prediksi rute terbaik untuk kendaraan di Bali menggunakan AI yang mempert
 - **AI Real-time Engine (ML Terawasi)** - Model travel-time dilatih dari `trip_history` nyata dan diblend dengan estimasi heuristik (`blend_weight` naik seiring jumlah sampel). Status model & blend tampil live di UI (kartu "🤖 AI Real-time Engine")
 - **Auto-Retrain Background** - Deteksi otomatis saat sampel riwayat ≥ `auto_retrain_threshold` lalu retrain semua model di background (thread) tanpa blokir request
 - **Traffic ML Blend** - Prediksi kepadatan menggabungkan + faktor model traffic dengan simulasi heuristik bila API TomTom tak tersedia
-- **Realtime Feed (SSE)** - Stream insiden baru & denyut traffic ke browser secara live (`/realtime/incidents`, `/realtime/traffic`); insiden baru muncul sebagai toast di UI
+- **Realtime Feed (SSE)** - Stream insiden baru, denyut traffic, & ETA rute aktif ke browser secara live (`/realtime/incidents`, `/realtime/traffic`, `/realtime/route`); insiden baru muncul sebagai toast di UI, ETA/waktu tiba/lalu lintas rute diperbarui otomatis tanpa re-routing (traffic+insiden+blend AI dihitung ulang per denyut)
 - **Pratinjau Lalu Lintas per Jam** - Slider jam (0-23) di peta menampilkan prediksi kepadatan grid per jam dari `/traffic/hourly`
 - **Konfigurasi Dapat Disesuaikan** - Settings realtime/AI (interval stream, threshold auto-retrain, min sampel ML, TTL insiden, bounds cakupan) di `config.py` dan terekspos `GET /config/public` (badge mode data ditampilkan di UI)
 - **Docker Deployment** - Dockerfile + docker-compose untuk produksi
@@ -222,6 +222,7 @@ GET /api/v1/traffic/now?lat=-8.65&lng=115.2            # Kepadatan saat ini + su
 GET /api/v1/traffic/hourly?lat=-8.65&lng=115.2&hour=9  # Kurva kepadatan 24 jam + grid preview
 GET /api/v1/realtime/incidents                         # SSE: insiden baru/resolved (event=init|traffic|...)
 GET /api/v1/realtime/traffic?lat=-8.65&lng=115.2&interval_s=5  # SSE: denyut kepadatan traffic live
+GET /api/v1/realtime/route?origin_lat=..&origin_lng=..&dest_lat=..&dest_lng=..&distance_km=..&base_minutes=..&coords="lat,lng;lat,lng"&mode=car&interval_s=20 # SSE: ETA live rute aktif (traffic/insiden/AI diperbarui tiap denyut)
 ```
 
 `/traffic/now` dihasilkan dari model ML bila sudah dilatih (blend_weight > 0), selain itu heuristic; `checked_at` menandai timestamp.
