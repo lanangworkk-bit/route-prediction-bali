@@ -4,6 +4,7 @@ import uuid
 from dataclasses import dataclass, field
 
 from app.models.route import RouteRequest
+from app.services.traffic_service import traffic_service
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +61,19 @@ class TrackSession:
     def snapshot(self) -> dict:
         progress = self.progress()
         remaining_km = round(self.total_distance_km * (1 - progress), 2)
+
+        # Live congestion-aware speed: real traffic slows the sim down.
+        position = self.position()
+        congestion = traffic_service.get_traffic_congestion(
+            position["lat"], position["lng"]
+        )
+        base_speed = self.speed_kmh
+        effective_speed = (
+            base_speed * max(0.3, 1.0 - congestion * 0.7) if base_speed > 0 else 0.0
+        )
         eta_min = (
-            round((remaining_km / self.speed_kmh) * 60, 1)
-            if self.speed_kmh > 0
+            round((remaining_km / effective_speed) * 60, 1)
+            if effective_speed > 0
             else 0.0
         )
         self.status = "arrived" if progress >= 1.0 else "active"
@@ -78,14 +89,17 @@ class TrackSession:
             "waypoints": [{"lat": w.lat, "lng": w.lng} for w in self.waypoints],
             "mode": self.mode,
             "priority": self.priority,
-            "position": self.position(),
+            "position": position,
             "total_distance_km": self.total_distance_km,
             "completed_km": round(self.total_distance_km * progress, 2),
             "remaining_km": remaining_km,
             "progress_percent": round(progress * 100, 1),
             "eta_minutes": eta_min,
             "elapsed_minutes": round(self.elapsed_minutes(), 1),
-            "speed_kmh": self.speed_kmh,
+            "speed_kmh": round(effective_speed, 1),
+            "base_speed_kmh": round(base_speed, 1),
+            "congestion": round(congestion, 3),
+            "congestion_source": traffic_service.congestion_source(),
             "instructions_remaining": self.instructions_remaining(),
         }
 

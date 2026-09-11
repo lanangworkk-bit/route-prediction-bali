@@ -18,6 +18,8 @@ class TrafficPredictor:
         self.model = None
         self.model_path = "data/processed/traffic_model.pkl"
         self.is_trained = False
+        self.history_samples = 0
+        self.last_metrics: dict = {}
 
     def train(self, data: pd.DataFrame = None):
         if data is None:
@@ -44,6 +46,7 @@ class TrafficPredictor:
         y_pred = self.model.predict(X_test)
         mse = mean_squared_error(y_test, y_pred)
         r2 = r2_score(y_test, y_pred)
+        self.last_metrics = {"mse": round(float(mse), 4), "r2": round(float(r2), 3)}
 
         logger.info(f"Model trained - MSE: {mse:.4f}, R2: {r2:.4f}")
 

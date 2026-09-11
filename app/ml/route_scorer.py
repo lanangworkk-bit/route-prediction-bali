@@ -16,6 +16,8 @@ class RouteScorer:
         self.model = None
         self.model_path = "data/processed/route_scorer.pkl"
         self.is_trained = False
+        self.history_samples = 0
+        self.last_metrics: dict = {}
         self.score_labels = {0: "poor", 1: "average", 2: "good", 3: "excellent"}
 
     def train(self, data: pd.DataFrame = None):
@@ -47,6 +49,7 @@ class RouteScorer:
 
         y_pred = self.model.predict(X_test)
         accuracy = accuracy_score(y_test, y_pred)
+        self.last_metrics = {"accuracy": round(float(accuracy), 3)}
 
         logger.info(f"Route scorer trained - Accuracy: {accuracy:.4f}")
 

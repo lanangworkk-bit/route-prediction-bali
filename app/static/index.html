@@ -220,6 +220,17 @@
         .switch input:checked + .slider { background: #2E8B57; }
         .switch input:checked + .slider:before { transform: translateX(18px); }
         .incident-marker-note, .poi-note { color: #666; font-size: 11px; }
+        .ai-card {
+            background: #f3e8ff; border: 1.5px solid #7b1fa2; border-radius: 10px;
+            padding: 10px 12px; margin-top: 12px; font-size: 12px;
+        }
+        .ai-title { font-weight: 700; color: #4a148c; display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+        .ai-title .flag { font-size: 10px; padding: 2px 7px; border-radius: 10px; font-weight: 700; }
+        .ai-title .flag.on { background: #e8f5e9; color: #1b5e20; border: 1px solid #43a047; }
+        .ai-title .flag.off { background: #fdecea; color: #b71c1c; border: 1px solid #e53935; }
+        .hour-preview { margin-top: 8px; font-size: 11px; color: #555; }
+        .hour-preview input[type=range] { width: 100%; }
+        .hour-preview .now-btn { font-size: 11px; padding: 2px 8px; border: 1px solid #ccc; border-radius: 6px; background: #fff; cursor: pointer; }
         @media (max-width: 900px) {
             .container { flex-direction: column; }
             .sidebar { width: 100%; height: auto; }
@@ -243,6 +254,14 @@
             <div class="map-mode-panel" id="poiPanel" style="top: auto; bottom: 24px; left: 12px; max-width: 300px; display: block;">
                 <div style="font-size:11px;font-weight:700;color:#555;margin-bottom:4px;">📍 Tempat Ikonik Bali</div>
                 <div class="poi-chips" id="poiChips"></div>
+                <div class="hour-preview">
+                    <div style="font-weight:700;color:#555;">🕐 Pratinjau Lalu Lintas</div>
+                    <input type="range" id="hourSlider" min="0" max="23" step="1" value="100">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <span id="hourLabel">Sekarang (live)</span>
+                        <button class="now-btn" onclick="previewNow()">Live</button>
+                    </div>
+                </div>
             </div>
             <div class="error" id="errorMsg"></div>
             <div class="toast" id="toast"></div>
@@ -323,6 +342,11 @@
                 <div class="radio-btn" data-priority="traffic" onclick="selectPriority(this)">🚦 Anti-Macet</div>
             </div>
 
+            <div class="ai-card" id="aiCard">
+                <div class="ai-title">🤖 AI Real-time Engine <span id="configBadge"></span></div>
+                <div id="aiStatus" class="incident-marker-note">Memuat status model...</div>
+            </div>
+
             <button class="primary-btn" id="predictBtn" onclick="predictRoute()">🎯 Prediksi Rute</button>
 
             <div class="loading" id="loading">
@@ -364,6 +388,7 @@
                 <div class="result-row"><span>Lalu Lintas</span><span id="rTraffic">-</span></div>
                 <div class="result-row"><span>Cuaca</span><span id="rWeather">-</span></div>
                 <div class="result-row"><span>Saran</span><span id="rAdvice">-</span></div>
+                <div class="result-row"><span>AI Travel-Time</span><span id="rAi">-</span></div>
 
                 <div class="btn-row">
                     <button class="action-btn" onclick="saveFavorite()">⭐ Simpan</button>
@@ -1147,6 +1172,86 @@
             loadIncidentsInterval = setInterval(loadIncidents, 60000);
         }
 
+        // ============ AI Engine status & config ============
+        function flagTag(on, label) {
+            return `<span class="flag ${on ? 'on' : 'off'}">${label}</span>`;
+        }
+
+        async function loadModelStatus() {
+            try {
+                const res = await fetch(`${API_BASE}/api/v1/models/info`);
+                const info = await res.json();
+                const tt = info.travel_time || {};
+                const tr = info.traffic || {};
+                const parts = [];
+                const aiState = tt.can_predict ? 'AKTIF' : 'mengumpulkan sampel';
+                let aiLine = `🚗 AI Travel-Time: <b>${aiState}</b> (${tt.samples} sampel nyata, blend ${Math.round((tt.blend_weight || 0) * 100)}%)`;
+                if (tt.metrics && tt.metrics.mae_minutes != null) {
+                    aiLine += ` · MAE ${tt.metrics.mae_minutes} mnt`;
+                }
+                parts.push(aiLine);
+                const trSrc = tr.trained ? 'AKTIF' : 'heuristic';
+                parts.push(`🚦 Traffic ML: <b>${trSrc}</b>${tr.history_samples ? ` (${tr.history_samples} sampel riwayat)` : ''}`);
+                parts.push(`🗂 Riwayat: ${info.history_count} perjalanan · auto-train tiap ${info.auto_retrain_threshold}`);
+                if (info.training) parts.push('⏳ <i>Sedang melatih model ulang...</i>');
+                document.getElementById('aiStatus').innerHTML = parts.join('<br>');
+            } catch (e) { console.error(e); }
+        }
+
+        async function loadConfigBadge() {
+            try {
+                const res = await fetch(`${API_BASE}/api/v1/config/public`);
+                const c = await res.json();
+                const tags = [
+                    flagTag(c.tomtom_enabled, c.tomtom_enabled ? 'TomTom Live' : 'Lalin Model+Sim'),
+                    flagTag(c.openweathermap_enabled, c.openweathermap_enabled ? 'Cuaca OWM' : 'Cuaca Mock'),
+                ];
+                document.getElementById('configBadge').innerHTML = tags.join(' ');
+            } catch (e) { console.error(e); }
+        }
+
+        // ============ Realtime SSE feeds (live incidents & model) ============
+        function initRealtimeFeeds() {
+            const es = new EventSource(`${API_BASE}/api/v1/realtime/incidents`);
+            es.onmessage = (e) => {
+                let msg = null;
+                try { msg = JSON.parse(e.data); } catch (_) { return; }
+                if (!msg || !msg.type) return;
+                if (msg.type === 'incident_new' && msg.payload) {
+                    showToast(`🚨 ${msg.payload.icon} Insiden baru: ${msg.payload.type_label}${msg.payload.description ? ' — ' + msg.payload.description : ''}`);
+                    loadIncidents();
+                } else if (msg.type === 'incident_resolved') {
+                    loadIncidents();
+                } else if (msg.type === 'model') {
+                    loadModelStatus();
+                }
+            };
+        }
+
+        // ============ Pratinjau Lalu Lintas per jam ============
+        async function previewHourly(hour) {
+            const c = map.getCenter();
+            try {
+                const res = await fetch(`${API_BASE}/api/v1/traffic/hourly?lat=${c.lat}&lng=${c.lng}&grid=11&radius_km=15&hour=${hour}`);
+                if (!res.ok) return;
+                const data = await res.json();
+                trafficLayer.clearLayers();
+                data.points.forEach(p => {
+                    L.circleMarker([p.lat, p.lng], {
+                        radius: 8, color: 'transparent', fillColor: TRAFFIC_COLORS[p.level],
+                        fillOpacity: 0.5,
+                    }).addTo(trafficLayer);
+                });
+                document.getElementById('hourLabel').textContent = `Pratinjau Jam ${hour}:00 (${data.source})`;
+            } catch (e) { console.error(e); }
+        }
+
+        function previewNow() {
+            const c = map.getCenter();
+            document.getElementById('hourLabel').textContent = 'Sekarang (live)';
+            loadTrafficOverlay(c.lat, c.lng);
+        }
+
         async function predictRoute(auto) {
             const info = getRouteInfo();
             if (!info) return;
@@ -1251,6 +1356,15 @@
 
             document.getElementById('rWeather').textContent = weather.condition;
             document.getElementById('rAdvice').textContent = weather.impact;
+
+            const ai = best.road_conditions.ai || {};
+            const hasAi = ai.model_active && ai.samples > 0;
+            const aiEl = document.getElementById('rAi');
+            if (aiEl) {
+                aiEl.innerHTML = hasAi
+                    ? `<span class="flag on">🤖 AI</span> ${ai.samples} sampel · blend ${Math.round(ai.blend_weight * 100)}% · AI ${fmtTime(ai.predicted_minutes)} <span style="color:#999">(heuristik ${fmtTime(ai.heuristic_minutes)})</span>`
+                    : `<span class="flag off">🤖 AI mengumpulkan sampel</span> (min 10 perjalanan)`;
+            }
 
             renderCompareTable(geom);
             renderLegsTable(geom.best, predict);
@@ -1454,6 +1568,12 @@ ${best.coordinates.map(c => c[0] + ',' + c[1] + ',0').join('\n')}
             loadIncidents();
             startIncidentRefresh();
             loadPoiLayer();
+            loadModelStatus();
+            loadConfigBadge();
+            initRealtimeFeeds();
+            const slider = document.getElementById('hourSlider');
+            slider.value = new Date().getHours();
+            slider.addEventListener('input', (e) => previewHourly(+e.target.value));
             applyShareParams();
         });
     </script>

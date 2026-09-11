@@ -28,6 +28,12 @@ Sistem prediksi rute terbaik untuk kendaraan di Bali menggunakan AI yang mempert
 - **Tombol Lokasi GPS Saya** - Isi otomatis titik awal dengan lokasi perangkat saat ini
 - **Riwayat Trip** - Setiap prediksi tersimpan ke SQLite, dapat di-retrain model dengan data nyata
 - **ML Models** - Model machine learning untuk prediksi dan scoring
+- **AI Real-time Engine (ML Terawasi)** - Model travel-time dilatih dari `trip_history` nyata dan diblend dengan estimasi heuristik (`blend_weight` naik seiring jumlah sampel). Status model & blend tampil live di UI (kartu "🤖 AI Real-time Engine")
+- **Auto-Retrain Background** - Deteksi otomatis saat sampel riwayat ≥ `auto_retrain_threshold` lalu retrain semua model di background (thread) tanpa blokir request
+- **Traffic ML Blend** - Prediksi kepadatan menggabungkan + faktor model traffic dengan simulasi heuristik bila API TomTom tak tersedia
+- **Realtime Feed (SSE)** - Stream insiden baru & denyut traffic ke browser secara live (`/realtime/incidents`, `/realtime/traffic`); insiden baru muncul sebagai toast di UI
+- **Pratinjau Lalu Lintas per Jam** - Slider jam (0-23) di peta menampilkan prediksi kepadatan grid per jam dari `/traffic/hourly`
+- **Konfigurasi Dapat Disesuaikan** - Settings realtime/AI (interval stream, threshold auto-retrain, min sampel ML, TTL insiden, bounds cakupan) di `config.py` dan terekspos `GET /config/public` (badge mode data ditampilkan di UI)
 - **Docker Deployment** - Dockerfile + docker-compose untuk produksi
 
 ## Tech Stack
@@ -187,6 +193,28 @@ python scripts/retrain.py --min-samples 10
 
 Model akan diblend dengan data riwayat hanya jika jumlah sampel riwayat ≥ `--min-samples`.
 
+### AI Models & Konfigurasi
+
+```http
+GET  /api/v1/models/info         # Status semua model: travel-time AI, traffic ML, route scorer, sampel riwayat, blend_weight, metrik
+POST /api/v1/models/retrain      # Retrain sinkron (409 bila training sedang berjalan)
+GET  /api/v1/config/public       # Konfigurasi publik (interval realtime, threshold AI, keaktifan TomTom/OWM, bounds cakupan)
+```
+
+Respons `road_conditions.ai` pada `/route/predict` berisi:
+`model_active`, `blend_weight`, `samples`, `predicted_minutes` (estimasi ML) dan `heuristic_minutes` (estimasi dasar) — UI menampilkan keduanya.
+
+### Traffic Real-time & Preview per Jam
+
+```http
+GET /api/v1/traffic/now?lat=-8.65&lng=115.2            # Kepadatan saat ini + sumber (heuristic/model)
+GET /api/v1/traffic/hourly?lat=-8.65&lng=115.2&hour=9  # Kurva kepadatan 24 jam + grid preview
+GET /api/v1/realtime/incidents                         # SSE: insiden baru/resolved (event=init|traffic|...)
+GET /api/v1/realtime/traffic?lat=-8.65&lng=115.2&interval_s=5  # SSE: denyut kepadatan traffic live
+```
+
+`/traffic/now` dihasilkan dari model ML bila sudah dilatih (blend_weight > 0), selain itu heuristic; `checked_at` menandai timestamp.
+
 ### Daftar Daerah Bali
 
 Sistem mencakup **seluruh Bali** (9 kabupaten/kota). Daftar daerah tersedia lewat API untuk dropdown UI:
@@ -253,10 +281,10 @@ print(f"Skor: {data['best_route']['overall_score']}/100")
 route-prediction/
 ├── app/
 │   ├── main.py              # FastAPI entry point
-│   ├── config.py            # Configuration
+│   ├── config.py            # Configuration (termasuk settings realtime/AI publik)
 │   ├── models/              # Data models
-│   ├── services/            # Business logic (osrm_service, history_service, traffic_service...)
-│   ├── ml/                  # AI/ML models (trainer.py: retrain dengan riwayat)
+│   ├── services/            # Business logic (osrm_service, history_service, traffic_service, realtime_feed...)
+│   ├── ml/                  # AI/ML (trainer.py, travel_time_model.py, registry.py, traffic_predictor.py)
 │   ├── api/                 # API endpoints
 │   └── utils/               # Utilities
 ├── scripts/retrain.py       # Retrain models dari CLI

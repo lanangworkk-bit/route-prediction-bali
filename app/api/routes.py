@@ -5,7 +5,8 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.ml.trainer import retrain_models
+from app.config import get_settings
+from app.ml.registry import registry
 from app.models.route import (
     Coordinate,
     RouteInfo,
@@ -20,6 +21,7 @@ from app.services.incident_service import incident_service
 from app.services.map_service import map_service
 from app.services.place_service import place_service
 from app.services.poi_service import poi_service
+from app.services.realtime_feed import incident_feed
 from app.services.route_optimizer import route_optimizer
 from app.services.track_service import track_service
 from app.services.traffic_service import traffic_service
@@ -265,6 +267,8 @@ async def route_geometry(
             "traffic_level": route.road_conditions.get("traffic_level", ""),
             "mode_label": route.road_conditions.get("mode_label", ""),
             "incident_penalty": route.road_conditions.get("incident_penalty", 0),
+            "ai": route.road_conditions.get("ai", {}),
+            "congestion_source": route.road_conditions.get("congestion_source", ""),
             "instructions": [i.model_dump() for i in route.instructions],
             "legs": [leg.model_dump() for leg in route.legs],
         }
@@ -331,12 +335,119 @@ async def get_history_stats():
 
 @router.post("/models/retrain")
 async def retrain():
-    try:
-        report = retrain_models()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Retraining failed: {e}") from e
-
+    """Retrain all ML models (traffic, route scorer, travel-time AI)."""
+    report = registry.train_now()
+    if report.get("training_in_progress"):
+        raise HTTPException(status_code=409, detail="Training already in progress")
     return {"status": "ok", "report": report}
+
+
+@router.get("/models/info")
+async def models_info():
+    """Live status of the trained ML models (samples, blends, metrics)."""
+    return registry.info()
+
+
+# ===================== Realtime Traffic =====================
+
+@router.get("/traffic/now")
+async def traffic_now(
+    lat: float = Query(..., ge=-90, le=90),
+    lng: float = Query(..., ge=-180, le=180),
+):
+    if not is_within_bali(Coordinate(lat=lat, lng=lng)):
+        raise HTTPException(status_code=400, detail="Location is outside Bali coverage area")
+    return traffic_service.get_traffic_now(lat, lng)
+
+
+@router.get("/traffic/hourly")
+async def traffic_hourly(
+    lat: float = Query(..., ge=-90, le=90),
+    lng: float = Query(..., ge=-180, le=180),
+    hour: int = Query(None, ge=0, le=23, description="Preview hour (0-23)"),
+    radius_km: float = Query(12, ge=2, le=50),
+    grid: int = Query(9, ge=3, le=15),
+):
+    """24h congestion curve at a point + heat grid preview for a chosen hour."""
+    if not is_within_bali(Coordinate(lat=lat, lng=lng)):
+        raise HTTPException(status_code=400, detail="Location is outside Bali coverage area")
+    response = {
+        "center": {"lat": lat, "lng": lng},
+        "source": traffic_service.congestion_source(),
+        "curve": traffic_service.get_hourly_curve(lat, lng),
+    }
+    if hour is not None:
+        response["hour"] = hour
+        response["points"] = traffic_service.get_overlay_for_hour(
+            lat, lng, radius_km, grid, hour
+        )
+    return response
+
+
+# ===================== Realtime SSE feeds =====================
+
+def _sse_event(data: dict) -> str:
+    event = f"event: {data['event']}\n" if data.get("event") else ""
+    return f"{event}data: {json.dumps(data)}\n\n"
+
+
+@router.get("/realtime/incidents")
+async def realtime_incidents():
+    """SSE feed: pushed whenever a hazard is reported or resolved."""
+    async def event_generator():
+        yield _sse_event({"event": "init", "type": "incidents_init"})
+        async for msg in incident_feed.subscribe():
+            yield _sse_event({**msg, "event": "incident"})
+            yield "event: ping\ndata: keepalive\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+@router.get("/realtime/traffic")
+async def realtime_traffic(
+    lat: float = Query(..., ge=-90, le=90),
+    lng: float = Query(..., ge=-180, le=180),
+    interval_s: float = Query(None, ge=2, le=300),
+):
+    """SSE feed: live congestion pulses for a location."""
+    if not is_within_bali(Coordinate(lat=lat, lng=lng)):
+        raise HTTPException(status_code=400, detail="Location is outside Bali coverage area")
+    interval = interval_s or get_settings().realtime_traffic_interval_s
+
+    async def event_generator():
+        while True:
+            yield _sse_event({
+                "event": "traffic",
+                "type": "traffic_pulse",
+                "payload": traffic_service.get_traffic_now(lat, lng),
+            })
+            yield "event: ping\ndata: keepalive\n\n"
+            await asyncio.sleep(interval)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+# ===================== Konfigurasi Publik =====================
+
+@router.get("/config/public")
+async def public_config():
+    return get_settings().public_config()
 
 
 # ===================== POI (Lokasi Spesifik) =====================
@@ -526,10 +637,6 @@ async def track_status(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Tracking session not found")
     return session.snapshot()
-
-
-def _sse_event(data: dict) -> str:
-    return f"data: {json.dumps(data)}\n\n"
 
 
 @router.get("/track/{session_id}/stream")

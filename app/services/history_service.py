@@ -120,6 +120,41 @@ class HistoryService:
         finally:
             conn.close()
 
+    def to_time_rows(self) -> list[dict]:
+        """Real supervised samples for the travel-time model.
+
+        Each row is one observed trip with features that the optimizer can
+        reproduce at prediction time.
+        """
+        conn = self._connect()
+        try:
+            rows = conn.execute("SELECT * FROM trip_history").fetchall()
+        finally:
+            conn.close()
+
+        out = []
+        for row in rows:
+            try:
+                dt = datetime.fromisoformat(row["created_at"])
+            except (ValueError, TypeError):
+                dt = datetime.now()
+            distance = row["distance_km"]
+            est_time = row["estimated_time_minutes"]
+            if not distance or not est_time or distance <= 0:
+                continue
+            hour = dt.hour
+            day = dt.weekday()
+            out.append({
+                "distance_km": distance,
+                "traffic_score": float(row["traffic_score"] or 0.5),
+                "weather_impact": float(row["weather_impact"] or 1.0),
+                "hour": hour,
+                "day_of_week": day,
+                "is_peak": 1 if (7 <= hour <= 9 or 17 <= hour <= 19) else 0,
+                "estimated_time_minutes": est_time,
+            })
+        return out
+
     def get_history(self, limit: int = 50, offset: int = 0) -> list[dict]:
         conn = self._connect()
         try:

@@ -2,6 +2,8 @@ import logging
 from datetime import datetime
 
 from app.config import get_settings
+from app.ml.registry import registry
+from app.ml.travel_time_model import travel_time_model
 from app.models.route import (
     Coordinate,
     Instruction,
@@ -93,6 +95,7 @@ class RouteOptimizer:
                 weather_condition=weather.condition.value,
                 route_source=route_source,
             )
+            registry.maybe_auto_retrain(history_service.get_count())
 
         return RouteResponse(
             best_route=best_route,
@@ -197,6 +200,36 @@ class RouteOptimizer:
                 base_time * traffic_factor / weather_speed_factor * factor
             )
 
+        # Real supervised travel-time AI: blends learned ETA into the heuristic.
+        ai_block = {
+            "model_active": False,
+            "blend_weight": 0.0,
+            "samples": 0,
+            "predicted_minutes": None,
+            "heuristic_minutes": round(adjusted_time, 2),
+        }
+        if factor is not None:
+            now = datetime.now()
+            ai_pred = travel_time_model.predict({
+                "distance_km": distance_km,
+                "traffic_score": traffic_score,
+                "weather_impact": weather_speed_factor,
+                "hour": now.hour,
+                "day_of_week": now.weekday(),
+                "is_peak": 1 if (7 <= now.hour <= 9 or 17 <= now.hour <= 19) else 0,
+            })
+            ai_weight = travel_time_model.blend_weight()
+            if ai_pred is not None and ai_weight > 0:
+                ai_time = ai_pred * factor
+                adjusted_time = adjusted_time * (1 - ai_weight) + ai_time * ai_weight
+                ai_block = {
+                    "model_active": True,
+                    "blend_weight": ai_weight,
+                    "samples": travel_time_model.samples,
+                    "predicted_minutes": round(ai_time, 2),
+                    "heuristic_minutes": round(adjusted_time, 2),
+                }
+
         distance_score = max(0, 1 - (distance_km / 100))
         time_score = max(0, 1 - (adjusted_time / 120))
 
@@ -245,6 +278,8 @@ class RouteOptimizer:
                 "weather_condition": self._get_weather_level(weather_speed_factor),
                 "mode_label": MODE_LABELS.get(mode, mode.value),
                 "incident_penalty": round(incident_penalty, 3),
+                "ai": ai_block,
+                "congestion_source": traffic_service.congestion_source(),
             },
         )
 

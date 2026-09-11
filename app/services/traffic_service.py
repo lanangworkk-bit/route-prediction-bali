@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import requests
 
 from app.config import get_settings
+from app.ml.traffic_predictor import traffic_predictor
 from app.models.traffic import TrafficPrediction
 
 logger = logging.getLogger(__name__)
@@ -25,9 +26,26 @@ class TrafficService:
         self._historical_data = {}
         self._initialize_historical_patterns()
 
+    def ai_blend_weight(self) -> float:
+        """How much to trust the trained congestion ML model (0..1)."""
+        if not traffic_predictor.history_samples:
+            return 0.0
+        return round(
+            min(1.0, traffic_predictor.history_samples / self.settings.traffic_ml_blend_samples),
+            3,
+        )
+
     def get_traffic_congestion(
-        self, lat: float, lng: float, timestamp: datetime = None
+        self,
+        lat: float,
+        lng: float,
+        timestamp: datetime = None,
+        *,
+        noise: bool = True,
     ) -> float:
+        """Congestion 0..1. Priority: live TomTom -> trained ML blended with
+        a time-of-day heuristic. Deterministic when noise=False (used for
+        hourly previews)."""
         if self.settings.tomtom_api_key:
             real = self._get_tomtom_congestion(lat, lng)
             if real is not None:
@@ -39,12 +57,86 @@ class TrafficService:
         hour = timestamp.hour
         day_of_week = timestamp.weekday()
 
-        base_congestion = self._get_base_congestion(hour, day_of_week)
+        base_congestion = self._get_base_congestion(hour, day_of_week, noise=noise)
         location_factor = self._get_location_factor(lat, lng)
-        random_factor = random.uniform(0.9, 1.1)
+        random_factor = random.uniform(0.9, 1.1) if noise else 1.0
 
         congestion = min(1.0, base_congestion * location_factor * random_factor)
-        return round(congestion, 3)
+
+        # Blend with ML congestion forecast as history accumulates.
+        ml_weight = self.ai_blend_weight()
+        if ml_weight > 0 and traffic_predictor.is_trained:
+            ml_congestion = traffic_predictor.predict(
+                timestamp, lat, lng,
+                temperature=28.0, humidity=75.0, wind_speed=12.0, visibility=10.0,
+            )
+            congestion = congestion * (1 - ml_weight) + ml_congestion * ml_weight
+
+        return round(min(1.0, max(0.0, congestion)), 3)
+
+    def congestion_source(self) -> str:
+        if self.settings.tomtom_api_key:
+            return "tomtom"
+        if self.ai_blend_weight() > 0:
+            return "model"
+        return "heuristic"
+
+    def get_traffic_now(self, lat: float, lng: float) -> dict:
+        congestion = self.get_traffic_congestion(lat, lng)
+        return {
+            "location": {"lat": lat, "lng": lng},
+            "congestion": congestion,
+            "level": self._level_for(congestion),
+            "speed_factor": round(1.0 - congestion, 3),
+            "source": self.congestion_source(),
+            "model": {
+                "trained": traffic_predictor.is_trained,
+                "history_samples": traffic_predictor.history_samples,
+                "blend_weight": self.ai_blend_weight(),
+            },
+            "checked_at": int(time.time()),
+        }
+
+    def get_hourly_curve(self, lat: float, lng: float) -> list[dict]:
+        """Deterministic congestion curve for the next 24 hours."""
+        now = datetime.now()
+        curve = []
+        for offset in range(24):
+            ts = now + timedelta(hours=offset)
+            congestion = self.get_traffic_congestion(lat, lng, ts, noise=False)
+            curve.append({
+                "hour_offset": offset,
+                "hour": ts.hour,
+                "day_of_week": ts.weekday(),
+                "congestion": congestion,
+                "level": self._level_for(congestion),
+            })
+        return curve
+
+    def get_overlay_for_hour(
+        self, lat: float, lng: float, radius_km: float, grid: int, hour: int
+    ) -> list[dict]:
+        """Traffic heat-grid points for a specific clock hour (preview)."""
+        now = datetime.now()
+        base = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+        km_per_deg_lat = 111.0
+        dlat = radius_km / km_per_deg_lat
+        dlng = radius_km / (km_per_deg_lat * max(1e-6, abs(lat) or 1e-6))
+
+        points = []
+        for row in range(grid):
+            for col in range(grid):
+                f = (grid - 1) / 2 if grid > 1 else 1
+                p_lat = lat + dlat * (row - grid / 2 + 0.5) / f
+                p_lng = lng + dlng * (col - grid / 2 + 0.5) / f
+                congestion = self.get_traffic_congestion(p_lat, p_lng, base, noise=False)
+                points.append({
+                    "lat": round(p_lat, 5),
+                    "lng": round(p_lng, 5),
+                    "congestion": congestion,
+                    "level": self._level_for(congestion),
+                })
+        return points
 
     def _get_tomtom_congestion(self, lat: float, lng: float) -> float | None:
         cache_key = f"{lat:.4f},{lng:.4f}"
@@ -163,7 +255,7 @@ class TrafficService:
             return "padat"
         return "macet"
 
-    def _get_base_congestion(self, hour: int, day_of_week: int) -> float:
+    def _get_base_congestion(self, hour: int, day_of_week: int, *, noise: bool = True) -> float:
         if day_of_week >= 5:
             if 10 <= hour <= 16:
                 return 0.3
@@ -174,15 +266,15 @@ class TrafficService:
         evening_peak = peak.get("evening")
 
         if morning_peak and morning_peak[0] <= hour <= morning_peak[1]:
-            return 0.7 + random.uniform(0, 0.2)
+            return 0.7 + random.uniform(0, 0.2) if noise else 0.7
         elif evening_peak and evening_peak[0] <= hour <= evening_peak[1]:
-            return 0.75 + random.uniform(0, 0.2)
+            return 0.75 + random.uniform(0, 0.2) if noise else 0.75
         elif 11 <= hour <= 14:
-            return 0.4 + random.uniform(0, 0.1)
+            return 0.4 + random.uniform(0, 0.1) if noise else 0.4
         elif 6 <= hour <= 22:
-            return 0.25 + random.uniform(0, 0.1)
+            return 0.25 + random.uniform(0, 0.1) if noise else 0.25
         else:
-            return 0.1 + random.uniform(0, 0.05)
+            return 0.1 + random.uniform(0, 0.05) if noise else 0.1
 
     def _get_location_factor(self, lat: float, lng: float) -> float:
         denpasar_center = (-8.6500, 115.2167)

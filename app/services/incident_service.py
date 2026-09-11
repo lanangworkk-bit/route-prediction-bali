@@ -1,6 +1,10 @@
+import contextlib
 import time
 import uuid
 from dataclasses import dataclass, field
+
+from app.config import get_settings
+from app.services.realtime_feed import incident_feed
 
 INCIDENT_TYPES = {
     "macet": {"label": "Macet", "icon": "🚗", "color": "#c62828"},
@@ -46,15 +50,21 @@ class Incident:
 
 
 class IncidentService:
-    """In-memory crowd-sourced hazard reports (expire after 2 hours)."""
+    """In-memory crowd-sourced hazard reports (configurable TTL)."""
 
     def __init__(self):
         self._incidents: dict[str, Incident] = {}
+        self._ttl_seconds = get_settings().incident_ttl_hours * 3600
 
     def _prune(self):
         for inc_id in list(self._incidents):
             if self._incidents[inc_id].expired:
+                self._broadcast({"type": "incident_resolved", "payload": {"id": inc_id}})
                 del self._incidents[inc_id]
+
+    def _broadcast(self, data: dict):
+        with contextlib.suppress(Exception):
+            incident_feed.publish(data)
 
     def report(
         self,
@@ -73,8 +83,10 @@ class IncidentService:
             description=description.strip(),
             reporter=reporter.strip() or "anonym",
         )
+        inc.expires_in_seconds = self._ttl_seconds
         self._prune()
         self._incidents[inc.id] = inc
+        self._broadcast({"type": "incident_new", "payload": inc.to_dict()})
         return inc
 
     def list_incidents(self, lat=None, lng=None, radius_km: float = 25.0) -> list[dict]:
@@ -98,6 +110,10 @@ class IncidentService:
     def resolve(self, inc_id: str) -> bool:
         if inc_id in self._incidents:
             del self._incidents[inc_id]
+            self._broadcast({
+                "type": "incident_resolved",
+                "payload": {"id": inc_id},
+            })
             return True
         return False
 

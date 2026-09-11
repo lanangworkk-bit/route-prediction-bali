@@ -230,6 +230,89 @@ def test_retrain_models():
     assert data["status"] == "ok"
     assert "traffic" in data["report"]
     assert "route_scorer" in data["report"]
+    assert "travel_time" in data["report"]
+
+
+def test_models_info():
+    response = client.get("/api/v1/models/info")
+    assert response.status_code == 200
+    data = response.json()
+    assert "history_count" in data
+    assert "travel_time" in data
+    assert "traffic" in data
+    assert "route_scorer" in data
+    assert "training" in data
+
+
+def test_traffic_now_endpoint():
+    ok = client.get("/api/v1/traffic/now", params={"lat": -8.65, "lng": 115.22})
+    assert ok.status_code == 200
+    data = ok.json()
+    assert "congestion" in data
+    assert "level" in data
+    assert "source" in data
+    assert "model" in data
+    bad = client.get("/api/v1/traffic/now", params={"lat": -6.2, "lng": 106.8})
+    assert bad.status_code == 400
+
+
+def test_traffic_hourly_endpoint():
+    response = client.get(
+        "/api/v1/traffic/hourly",
+        params={"lat": -8.65, "lng": 115.22, "hour": 9, "grid": 5},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["curve"]) == 24
+    assert "hour" in data and data["hour"] == 9
+    assert data["points"]
+
+
+def test_public_config_endpoint():
+    response = client.get("/api/v1/config/public")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["tomtom_enabled"] is False
+    assert "ai_refresh_interval_s" in data
+    assert "coverage" in data
+    assert data["coverage"]["lat_min"] == -8.85
+
+
+def test_realtime_incidents_sse():
+    import asyncio
+
+    from app.api import routes as route_mod
+
+    async def run():
+        response = await route_mod.realtime_incidents()
+        iterator = response.body_iterator.__aiter__()
+        try:
+            chunk = await asyncio.wait_for(iterator.__anext__(), timeout=3)
+        finally:
+            await iterator.aclose()
+        return chunk
+
+    chunk = asyncio.run(run())
+    assert "event:" in (chunk.decode() if isinstance(chunk, bytes) else chunk)
+
+
+def test_realtime_traffic_sse():
+    import asyncio
+
+    from app.api import routes as route_mod
+
+    async def run():
+        response = await route_mod.realtime_traffic(lat=-8.65, lng=115.22, interval_s=2)
+        iterator = response.body_iterator.__aiter__()
+        try:
+            chunk = await asyncio.wait_for(iterator.__anext__(), timeout=3)
+        finally:
+            await iterator.aclose()
+        return chunk
+
+    chunk = asyncio.run(run())
+    text = chunk.decode() if isinstance(chunk, bytes) else chunk
+    assert "event: traffic" in text
 
 
 def test_route_geometry_endpoint(monkeypatch):
