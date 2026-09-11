@@ -162,6 +162,29 @@
             background: white; border-radius: 8px; padding: 8px 10px; font-size: 11px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.2);
         }
+        .guidance-bar {
+            position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+            display: none; align-items: center; gap: 12px; z-index: 3000; width: 92%; max-width: 640px;
+            background: rgba(20, 30, 40, 0.92); color: #fff; border-radius: 16px;
+            padding: 12px 16px; box-shadow: 0 8px 28px rgba(0,0,0,0.4);
+            backdrop-filter: blur(6px); font-size: 13px;
+        }
+        .guidance-bar.shown { display: flex; }
+        .guidance-icon { font-size: 30px; min-width: 40px; text-align: center; }
+        .guidance-text { flex: 1; }
+        .guidance-text .distance { color: #ffd54f; font-weight: 700; }
+        .guidance-step-count { font-size: 11px; color: #b0bec5; }
+        .guidance-btn {
+            border: 1px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.12);
+            color: #fff; border-radius: 999px; padding: 9px 14px; font-size: 12px;
+            font-weight: 700; cursor: pointer; white-space: nowrap; transition: background 0.15s;
+        }
+        .guidance-btn:hover { background: rgba(255,255,255,0.25); }
+        .guidance-btn.stop { background: rgba(220, 60, 60, 0.85); border-color: rgba(255,255,255,0.2); }
+        @media (max-width: 640px) {
+            .guidance-btn.guide-next { display: none; }
+            .guidance-bar { width: 94%; }
+        }
         .legend-item { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
         .legend-color { width: 18px; height: 6px; border-radius: 3px; display: inline-block; }
         .poi-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
@@ -244,6 +267,16 @@
     <div class="container">
         <main class="map-area">
             <div id="map"></div>
+            <div class="guidance-bar" id="guidanceBar">
+                <div class="guidance-icon" id="guidanceIcon">🚩</div>
+                <div class="guidance-text">
+                    <div id="guidanceText">Memulai panduan...</div>
+                    <div class="guidance-step-count" id="guidanceStepCount"></div>
+                </div>
+                <div class="guidance-distance" id="guidanceDistance"></div>
+                <button class="guidance-btn guide-next" onclick="nextGuidance()">⚡ Langkah berikut</button>
+                <button class="guidance-btn stop" onclick="endGuidance()">⏹ Selesai</button>
+            </div>
             <div class="map-mode-panel" id="modePanel">
                 <button class="mode-btn active" data-mode="origin" onclick="setMode('origin')">📍 Asal</button>
                 <button class="mode-btn" data-mode="dest" onclick="setMode('dest')">🏁 Tujuan</button>
@@ -442,6 +475,7 @@
         let trackStream = null, trackMarker = null, trackSessionId = null;
         let incidentPending = null;
         let legendControl = null;
+        let guideSteps = [], guideIdx = 0, guidanceActive = false, guidanceTimer = null;
         const waypointMarkers = [];
         const waypointCards = [];
 
@@ -526,6 +560,7 @@
             }, { collapsed: true }).addTo(map);
 
             map.on('click', (e) => {
+                if (guidanceActive) endGuidance();
                 const lat = +e.latlng.lat.toFixed(5);
                 const lng = +e.latlng.lng.toFixed(5);
                 if (setModePending === 'incident') {
@@ -738,6 +773,7 @@
             document.getElementById('result').style.display = 'none';
             routeData = null;
             stopAutoRefresh();
+            if (guidanceActive) endGuidance();
         }
 
         async function loadTrafficOverlay(lat, lng) {
@@ -1421,7 +1457,7 @@
             (existing) && existing.remove();
             document.getElementById('directions').innerHTML = steps.length
                 ? steps.map((s, i) => `
-                    <div class="direction">
+                    <div class="direction" data-step="${i}">
                         <div class="direction-icon">${MANEUVER_ICONS[s.modifier] || MANEUVER_ICONS[s.type] || '➡'}</div>
                         <div class="direction-text">
                             <b>${i + 1}. ${s.instruction}</b>
@@ -1430,6 +1466,59 @@
                         <div class="direction-distance">${s.distance_km ? s.distance_km + ' km' : ''}</div>
                     </div>`).join('')
                 : '<div style="font-size:12px;color:#888;">Tidak ada panduan arah tersedia.</div>';
+            startGuidance(best);
+        }
+
+        // ============ Panduan Turn-by-Turn otomatis (ala Google Maps) ============
+        function startGuidance(best) {
+            const steps = (best && best.instructions) || [];
+            if (!steps.length) return;
+            if (!guidanceActive) {
+                guideSteps = steps;
+                guideIdx = 0;
+                guidanceActive = true;
+                document.getElementById('guidanceBar').classList.add('shown');
+                showGuidanceStep(true);
+            } else {
+                guideSteps = steps;
+                if (guideIdx >= steps.length) guideIdx = 0;
+                showGuidanceStep(false);
+            }
+        }
+
+        function showGuidanceStep(announce) {
+            const step = guideSteps[guideIdx];
+            if (!step) return;
+            document.getElementById('guidanceIcon').textContent = MANEUVER_ICONS[step.modifier] || MANEUVER_ICONS[step.type] || '➡';
+            document.getElementById('guidanceText').innerHTML = `<span class="distance">${step.distance_km ? step.distance_km + ' km · ' : ''}</span>${escapeHtml(step.instruction)}`;
+            document.getElementById('guidanceStepCount').textContent = guidanceActive && guideSteps.length > 1 ? `✳️ ${guideIdx + 1} / ${guideSteps.length}` : '';
+            document.getElementById('guidanceDistance').textContent = step.time_minutes ? `~${fmtTime(step.time_minutes)}` : '';
+            if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+            if (announce) speak(step.instruction);
+            if (guidanceTimer) clearTimeout(guidanceTimer);
+            if (guidanceActive) {
+                guidanceTimer = setTimeout(() => { if (guideIdx < guideSteps.length - 1) { guideIdx++; showGuidanceStep(true); } }, 15000);
+            }
+        }
+
+        function nextGuidance() {
+            if (guideIdx < guideSteps.length - 1) guideIdx++;
+            showGuidanceStep(true);
+        }
+
+        function endGuidance() {
+            guidanceActive = false;
+            if (guidanceTimer) clearTimeout(guidanceTimer);
+            document.getElementById('guidanceBar').classList.remove('shown');
+            if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+            if (map && routeData && routeData.best) {
+                map.fitBounds(L.latLngBounds(routeData.best.coordinates.map(c => [c[1], c[0]])), { padding: [30, 30] });
+            }
+        }
+
+        function escapeHtml(t) {
+            return String(t || '').replace(/[&<>"']/g, c =>
+                ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         }
 
         function exportGpx() {

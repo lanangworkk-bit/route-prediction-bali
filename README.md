@@ -13,6 +13,7 @@ Sistem prediksi rute terbaik untuk kendaraan di Bali menggunakan AI yang mempert
 - **Weather Integration** - Integrasi data cuaca untuk penyesuaian rute
 - **Interactive Map** - Peta interaktif Leaflet langsung di halaman utama (bukan iframe): klik peta untuk menempatkan titik, marker bisa digeser (drag), live update
 - **Turn-by-Turn Navigation** - Panduan arah per belokan (OSRM steps) dalam Bahasa Indonesia, ikon manuver, jarak per langkah
+- **Panduan Otomatis A-Z (ala Google Maps)** - Setelah rute diprediksi, bar panduan sticky muncul di peta memberi arahan belokan demi belokan (`N / total`), diberi suara jika navigasi suara aktif, maju otomatis/lewat tombol "⚡ Langkah berikut", berhenti dengan "⏹ Selesai"
 - **Perbandingan Rute** - Tabel banding rute terbaik vs alternatif (jarak, waktu, lalu lintas, skor) + rincian per leg/segmen
 - **Pencarian Tempat (Autocomplete)** - Cari lokasi di Bali via Nominatim dengan saran instan
 - **Layer Peta** - Ganti tampilan: Jalan (OSM/Carto), Satelit (Esri), Medan (OpenTopoMap)
