@@ -16,6 +16,7 @@ venv/
 # Dependencies
 *.pkl
 data/processed/*.html
+data/processed/*_meta.json
 data/raw/*
 !data/raw/.gitkeep
 
