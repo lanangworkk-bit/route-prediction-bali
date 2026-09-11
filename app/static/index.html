@@ -181,6 +181,13 @@
             padding: 4px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap;
         }
         .arrival-band { color: #777; font-size: 11px; font-weight: 400; }
+        .route-pill {
+            display: inline-block; border: 1px solid #c8c8c8; background: #fff; color: #333;
+            border-radius: 999px; padding: 3px 10px; margin: 2px 4px 2px 0; font-size: 11px;
+            font-weight: 700; cursor: pointer; transition: background 0.15s;
+        }
+        .route-pill:hover { background: #eef6ff; }
+        .route-pill.active { background: #14532d; border-color: #14532d; color: #fff; }
         .guidance-btn {
             border: 1px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.12);
             color: #fff; border-radius: 999px; padding: 9px 14px; font-size: 12px;
@@ -432,6 +439,7 @@
                 <div class="result-row"><span>Jarak</span><span id="rDistance">-</span></div>
                 <div class="result-row"><span>Estimasi Waktu</span><span id="rTime">-</span></div>
                 <div class="result-row"><span>Waktu Tiba</span><span><span id="rArrival">-</span> <span id="rArrivalBand" class="arrival-band"></span></span></div>
+                <div class="result-row" id="routePillsRow" style="display:none"><span>Rute</span><span id="routePills"></span></div>
                 <div class="result-row"><span>Skor Rute</span><span id="rScore">-</span></div>
                 <div class="result-row"><span>Lalu Lintas</span><span id="rTraffic">-</span></div>
                 <div class="result-row"><span>Cuaca</span><span id="rWeather">-</span></div>
@@ -494,7 +502,7 @@
         let guideSteps = [], guideIdx = 0, guidanceActive = false, guidanceTimer = null;
         let routeFeed = null, lastIncidentPenalty = 0;
         let posMarker = null, movementTimer = null, routeElapsed = 0, routeCumKm = [];
-        let liveTrafficTimer = null;
+        let liveTrafficTimer = null, lastChosenKm = null;
         const MOVE_DT = 2, EARTH_R = 6371;
         const waypointMarkers = [];
         const waypointCards = [];
@@ -1206,6 +1214,10 @@
                     const res = await fetch(url);
                     if (!res.ok) return;
                     const geom = await res.json();
+                    if (lastChosenKm) {
+                        const alt = geom.alternatives.find(a => Math.abs(a.distance_km - lastChosenKm) < 0.6);
+                        if (alt && alt !== geom.best) geom.best = alt;
+                    }
                     routeData = geom;
                     drawRoute(geom);
                     const predictLike = {
@@ -1508,6 +1520,7 @@
 
                 drawRoute(geomData);
                 routeData = geomData;
+                lastChosenKm = null;
                 renderResults(predictData, geomData);
                 connectRouteFeed(geomData);
                 renderRecent();
@@ -1533,9 +1546,12 @@
             routeLayer.clearLayers();
             const ll = c => [c[1], c[0]];
 
-            geom.alternatives.forEach(a => {
+            geom.alternatives.forEach((a, aidx) => {
                 if (a === geom.best) return;
-                L.polyline(a.coordinates.map(ll), { color: '#8a8a8a', weight: 4, opacity: 0.6, dashArray: '6 6' }).addTo(routeLayer);
+                L.polyline(a.coordinates.map(ll), { color: '#8a8a8a', weight: 4, opacity: 0.6, dashArray: '6 6' })
+                    .bindTooltip(`Rute ${'ABCDEF'[aidx + 1] || ''} · ${a.distance_km} km · ${fmtTime(a.estimated_time_minutes)} · ${a.traffic_level} — klik untuk pilih`)
+                    .on('click', () => selectAlternative(aidx + 1))
+                    .addTo(routeLayer);
             });
 
             const bestLine = L.polyline(geom.best.coordinates.map(ll), { color: '#14532d', weight: 6, opacity: 0.9 }).addTo(routeLayer);
@@ -1598,6 +1614,7 @@
             renderCompareTable(geom);
             renderLegsTable(geom.best, predict);
             renderDirections(geom.best);
+            renderRoutePills();
 
             document.getElementById('result').style.display = 'block';
         }
@@ -1742,6 +1759,44 @@
             if (!minutes) { el.textContent = ''; return; }
             const [loF, hiF] = bandFactors(level || 'Normal');
             el.textContent = `⟪${arrivalTime(minutes * loF)}–${arrivalTime(minutes * hiF)}⟫`;
+        }
+
+        function renderRoutePills() {
+            const el = document.getElementById('routePills');
+            const row = document.getElementById('routePillsRow');
+            if (!el || !row || !routeData) return;
+            const alts = [routeData.best, ...(routeData.alternatives || [])];
+            if (alts.length < 2) { row.style.display = 'none'; return; }
+            row.style.display = '';
+            el.innerHTML = alts.map((r, i) =>
+                `<button class="route-pill ${i === 0 ? 'active' : ''}" onclick="selectAlternative(${i})">${'ABC'[i] || (i + 1)} · ${r.distance_km} km · ${fmtTime(r.estimated_time_minutes)}</button>`
+            ).join('');
+        }
+
+        function selectAlternative(idx) {
+            if (!routeData) return;
+            const alts = [routeData.best, ...(routeData.alternatives || [])];
+            const chosen = alts[idx];
+            if (!chosen || chosen === routeData.best) return;
+            const wasGuiding = guidanceActive;
+            lastChosenKm = chosen.distance_km;
+            stopMovement();
+            routeData.alternatives = (routeData.alternatives || []).filter(a => a !== chosen);
+            routeData.best = chosen;
+            drawRoute(routeData);
+            const chosenLike = {
+                ...chosen,
+                road_conditions: {
+                    traffic_level: chosen.traffic_level,
+                    mode_label: chosen.mode_label,
+                    ai: chosen.ai,
+                },
+            };
+            renderResults({ best_route: chosenLike, weather_summary: routeData.weather_summary }, routeData);
+            connectRouteFeed(routeData);
+            if (wasGuiding && chosen.instructions && chosen.instructions.length) startMovement();
+            showToast('✅ Rute ' + ('ABC'[idx] || (idx + 1)) + ' dipilih');
+            map.fitBounds(L.latLngBounds(chosen.coordinates.map(c => [c[1], c[0]])), { padding: [30, 30] });
         }
 
         function exportGpx() {
