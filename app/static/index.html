@@ -176,6 +176,10 @@
         .guidance-step-count { font-size: 11px; color: #b0bec5; }
         .guidance-progress { height: 4px; background: rgba(255,255,255,0.18); border-radius: 2px; margin-top: 6px; overflow: hidden; }
         #guidanceProgress { height: 100%; width: 0; background: #42d77d; transition: width 0.5s linear; }
+        .guidance-traffic {
+            display: inline-flex; align-items: center; gap: 4px; background: rgba(255,255,255,0.12);
+            padding: 4px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap;
+        }
         .guidance-btn {
             border: 1px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.12);
             color: #fff; border-radius: 999px; padding: 9px 14px; font-size: 12px;
@@ -277,6 +281,7 @@
                     <div class="guidance-progress"><div id="guidanceProgress"></div></div>
                 </div>
                 <div class="guidance-distance" id="guidanceDistance"></div>
+                <div class="guidance-traffic" id="guidanceTraffic" style="display:none;">🚦 <span id="guidanceTrafficText"></span></div>
                 <button class="guidance-btn guide-next" onclick="nextGuidance()">⚡ Langkah berikut</button>
                 <button class="guidance-btn stop" onclick="endGuidance()">⏹ Selesai</button>
             </div>
@@ -487,6 +492,7 @@
         let guideSteps = [], guideIdx = 0, guidanceActive = false, guidanceTimer = null;
         let routeFeed = null, lastIncidentPenalty = 0;
         let posMarker = null, movementTimer = null, routeElapsed = 0, routeCumKm = [];
+        let liveTrafficTimer = null;
         const MOVE_DT = 2, EARTH_R = 6371;
         const waypointMarkers = [];
         const waypointCards = [];
@@ -1389,6 +1395,8 @@
                 }).addTo(map);
             }
             movementTimer = setInterval(movementTick, MOVE_DT * 1000);
+            refreshLiveTraffic();
+            liveTrafficTimer = setInterval(refreshLiveTraffic, 15000);
         }
 
         function movementTick() {
@@ -1414,7 +1422,8 @@
                 guideIdx = Math.min(idx, steps.length - 1);
                 showGuidanceStep(true);
             }
-            document.getElementById('guidanceProgress').style.width = ((frac * 100)).toFixed(1) + '%';
+            document.getElementById('guidanceProgress').style.width = (frac * 100).toFixed(1) + '%';
+            document.getElementById('guidanceDistance').textContent = renderGuidanceStatus();
             if (!map.getBounds().contains(posMarker.getLatLng())) map.panTo(posMarker.getLatLng(), { animate: true, duration: 0.5 });
             if (frac >= 1) handleArrival();
         }
@@ -1425,8 +1434,37 @@
             speak('Anda telah tiba di tujuan');
         }
 
+        function renderGuidanceStatus() {
+            if (!routeData || !routeData.best || !routeData.best.estimated_time_minutes) return '';
+            const eta = routeData.best.estimated_time_minutes;
+            const frac = (movementTimer && routeCumKm.length) ? Math.min(1, routeElapsed / (eta * 60)) : 0;
+            const totalKm = routeCumKm.length ? routeCumKm[routeCumKm.length - 1] : (routeData.best.distance_km || 0);
+            const leftKm = Math.max(0, totalKm * (1 - frac));
+            const leftMin = Math.max(0, Math.round(eta * (1 - frac) * 10) / 10);
+            return `~${fmtTime(leftMin)} · Tiba ${arrivalTime(leftMin)} · sisa ${leftKm.toFixed(1)} km`;
+        }
+
+        function refreshLiveTraffic() {
+            if (!posMarker) return;
+            const ll = posMarker.getLatLng();
+            fetch(`${API_BASE}/api/v1/traffic/now?lat=${ll.lat}&lng=${ll.lng}`)
+                .then(r => (r.ok ? r.json() : null))
+                .then(d => {
+                    if (!d) return;
+                    const chip = document.getElementById('guidanceTraffic');
+                    if (!chip) return;
+                    chip.style.display = 'inline-flex';
+                    document.getElementById('guidanceTrafficText').textContent = TRAFFIC_LEVELS[d.level] || d.level || 'Normal';
+                    chip.style.color = TRAFFIC_COLORS[d.level] || '#e0e0e0';
+                })
+                .catch(() => {});
+        }
+
         function stopMovement() {
             if (movementTimer) { clearInterval(movementTimer); movementTimer = null; }
+            if (liveTrafficTimer) { clearInterval(liveTrafficTimer); liveTrafficTimer = null; }
+            const chip = document.getElementById('guidanceTraffic');
+            if (chip) chip.style.display = 'none';
             if (posMarker) { map.removeLayer(posMarker); posMarker = null; }
             const pb = document.getElementById('guidanceProgress');
             if (pb) pb.style.width = '0%';
@@ -1646,12 +1684,9 @@
             const step = guideSteps[guideIdx];
             if (!step) return;
             document.getElementById('guidanceIcon').textContent = MANEUVER_ICONS[step.modifier] || MANEUVER_ICONS[step.type] || '➡';
-            const remaining = routeData && routeData.best
-                ? Math.round((guideSteps.length - 1 - guideIdx) / Math.max(1, guideSteps.length - 1) * routeData.best.estimated_time_minutes * 10) / 10
-                : step.time_minutes || 0;
             document.getElementById('guidanceText').innerHTML = `<span class="distance">${step.distance_km ? step.distance_km + ' km · ' : ''}</span>${escapeHtml(step.instruction)}`;
             document.getElementById('guidanceStepCount').textContent = guidanceActive && guideSteps.length > 1 ? `✳️ ${guideIdx + 1} / ${guideSteps.length}` : '';
-            document.getElementById('guidanceDistance').textContent = remaining > 0 ? `~${fmtTime(remaining)} · Tiba ${arrivalTime(remaining)}` : '';
+            document.getElementById('guidanceDistance').textContent = renderGuidanceStatus();
             if ('speechSynthesis' in window) window.speechSynthesis.cancel();
             if (announce) speak(step.instruction);
         }

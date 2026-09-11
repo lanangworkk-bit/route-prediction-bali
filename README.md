@@ -23,7 +23,7 @@ Sistem prediksi rute terbaik untuk kendaraan di Bali menggunakan AI yang mempert
 - **119 Lokasi Ikonik Bali** - POI kurasi (pura, pantai, air terjun, gunung & danau, kuliner, dll) dengan layer peta per kategori + saran autocomplete (digabung dengan Nominatim). Endpoint: `/pois`, `/pois/categories`, `/pois/near`, `/pois/{id}`
 - **Profil Kendaraan** - Pilih mode kendaraan: 🚗 Mobil, 🏍 Motor, 🚶 Jalan Kaki (waktu ETA & kecepatan disesuaikan otomatis)
 - **Realtime Tracking Live (SSE)** - Mulai tracking perjalanan, perangkat bergerak di peta dengan progress, ETA tersisa & kecepatan live; bagikan tautan `/?track=<id>` agar orang lain ikut memantau
-- **Navigasi ala Google Maps** - Panduan turn-by-turn otomatis menyala di rute: posisi 🚗 bergerak live di peta sepanjang rute, langkah berikutnya maju sesuai jarak yang sudah ditempuh (bukan timer), sisa ETA & waktu tiba diperbarui tiap denyut SSE realtime, progress bar visual, suara per belokan, dan animasi hubungi saat tiba di tujuan
+- **Navigasi ala Google Maps** - Panduan turn-by-turn otomatis menyala di rute: posisi 🚗 bergerak live di peta sepanjang rute, langkah berikutnya maju sesuai jarak yang sudah ditempuh (bukan timer), sisa ETA, waktu tiba & sisa jarak ditampilkan, chip 🚦 lalu lintas di posisi kendaraan diperbarui tiap 15 detik, progress bar visual, suara per belokan, dan animasi hubungi saat tiba di tujuan
 - **Navigasi Suara Bahasa Indonesia** - Panduan arah dibacakan via SpeechSynthesis (`id-ID`), toggle on/off
 - **Auto-Refresh Lalu Lintas & ETA** - Rute di-refresh otomatis tiap 45 detik (segmen traffic + ETA terbaru tanpa merekam riwayat)
 - **Rute Favorit & Riwayat Terakhir** - Simpan rute dengan nama, muat ulang sekali klik; 5 perjalanan terakhir ditampilkan di panel
