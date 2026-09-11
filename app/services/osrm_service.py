@@ -98,6 +98,20 @@ class OsrmService:
             return routes[0]
         return self.fallback_direct_route(origin, destination, waypoints)
 
+    def nearest(self, lat: float, lng: float) -> Coordinate | None:
+        """Snap koordinat GPS mentah ke titik terdekat di jaringan jalan (OSRM /nearest)."""
+        url = f"{self.base_url}/nearest/v1/driving/{lng},{lat}"
+        try:
+            response = requests.get(url, params={"number": 1}, timeout=6)
+            response.raise_for_status()
+            data = response.json()
+            if data.get("code") == "Ok" and data.get("waypoints"):
+                waypoint = data["waypoints"][0]
+                return Coordinate(lat=waypoint["location"][1], lng=waypoint["location"][0])
+        except Exception as e:
+            logger.warning(f"OSRM nearest failed: {e}")
+        return None
+
     def fallback_direct_route(
         self,
         origin: Coordinate,

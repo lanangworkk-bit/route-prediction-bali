@@ -22,6 +22,7 @@ from app.services.favorites_service import favorites_service
 from app.services.history_service import history_service
 from app.services.incident_service import incident_service
 from app.services.map_service import map_service
+from app.services.osrm_service import osrm_service
 from app.services.place_service import place_service
 from app.services.poi_service import poi_service
 from app.services.realtime_feed import incident_feed
@@ -548,6 +549,18 @@ async def realtime_route(
 @router.get("/config/public")
 async def public_config():
     return get_settings().public_config()
+
+
+@router.get("/osrm/nearest")
+async def osrm_nearest(
+    lat: float = Query(..., ge=-90, le=90),
+    lng: float = Query(..., ge=-180, le=180),
+):
+    """Snap GPS mentah ke titik jalan terdekat (OSRM /nearest)."""
+    snapped = await asyncio.to_thread(osrm_service.nearest, lat, lng)
+    if snapped is None:
+        return {"snapped": False, "lat": lat, "lng": lng}
+    return {"snapped": True, "lat": snapped.lat, "lng": snapped.lng}
 
 
 # ===================== POI (Lokasi Spesifik) =====================

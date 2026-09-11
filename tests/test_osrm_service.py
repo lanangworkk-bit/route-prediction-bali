@@ -191,6 +191,32 @@ def test_get_route_single(mock_get):
 
 
 @patch("app.services.osrm_service.requests.get")
+def test_nearest_snaps_to_road(mock_get):
+    mock_get.return_value = Mock(
+        status_code=200,
+        raise_for_status=lambda: None,
+        json=lambda: {
+            "code": "Ok",
+            "waypoints": [{"location": [115.2142, -8.6488]}],
+        },
+    )
+
+    snapped = osrm_service.nearest(-8.65, 115.2167)
+
+    assert snapped is not None
+    assert abs(snapped.lat - -8.6488) < 0.01
+    assert abs(snapped.lng - 115.2142) < 0.01
+    assert "/nearest/v1/driving/115.2167,-8.65" in str(mock_get.call_args)
+
+
+@patch("app.services.osrm_service.requests.get")
+def test_nearest_returns_none_on_error(mock_get):
+    mock_get.side_effect = Exception("network down")
+
+    assert osrm_service.nearest(-8.65, 115.2167) is None
+
+
+@patch("app.services.osrm_service.requests.get")
 def test_get_route_fallback_on_single_failure(mock_get):
     mock_get.return_value = Mock(
         status_code=200,

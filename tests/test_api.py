@@ -280,6 +280,31 @@ def test_public_config_endpoint():
     assert "ai_provider" in data
 
 
+def test_osrm_nearest_endpoint(monkeypatch):
+    from unittest.mock import patch
+
+    from app.models.route import Coordinate
+    from app.services.osrm_service import osrm_service
+
+    with patch.object(osrm_service, "nearest", return_value=Coordinate(lat=-8.6488, lng=115.2142)):
+        response = client.get("/api/v1/osrm/nearest", params={"lat": -8.65, "lng": 115.2167})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["snapped"] is True
+    assert abs(body["lat"] - -8.6488) < 1e-3
+
+
+def test_osrm_nearest_endpoint_fallback(monkeypatch):
+    from unittest.mock import patch
+
+    from app.services.osrm_service import osrm_service
+
+    with patch.object(osrm_service, "nearest", return_value=None):
+        response = client.get("/api/v1/osrm/nearest", params={"lat": -8.65, "lng": 115.2167})
+    assert response.status_code == 200
+    assert response.json()["snapped"] is False
+
+
 def test_realtime_incidents_sse():
     import asyncio
 

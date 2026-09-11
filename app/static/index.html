@@ -3,7 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#1a6b37">
     <title>Prediksi Rute Terbaik - Bali</title>
+    <link rel="manifest" href="/static/manifest.json">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
@@ -501,6 +503,8 @@
         let waypointsChangeWired = false;
         let guideSteps = [], guideIdx = 0, guidanceActive = false;
         let routeFeed = null, lastIncidentPenalty = 0;
+        let gpsLat = null, gpsLng = null, offRouteCooldown = 0, rerouting = false;
+        let wakeLock = null;
         let posMarker = null, movementTimer = null, routeElapsed = 0, routeCumKm = [];
         let liveTrafficTimer = null, lastChosenKm = null;
         let gpsWatchId = null, gpsActive = false, gpsTargetFrac = null, smoothFrac = 0;
@@ -855,14 +859,19 @@
         function useMyLocation() {
             if (!navigator.geolocation) { showError('Geolocation tidak didukung browser'); return; }
             showToast('📡 Mendeteksi lokasi...');
-            navigator.geolocation.getCurrentPosition((pos) => {
-                const lat = +pos.coords.latitude.toFixed(5);
-                const lng = +pos.coords.longitude.toFixed(5);
+            navigator.geolocation.getCurrentPosition(async (pos) => {
+                let lat = +pos.coords.latitude.toFixed(5);
+                let lng = +pos.coords.longitude.toFixed(5);
+                try {
+                    const res = await fetch(`${API_BASE}/api/v1/osrm/nearest?lat=${lat}&lng=${lng}`);
+                    const snap = await res.json();
+                    if (snap.snapped) { lat = +snap.lat.toFixed(5); lng = +snap.lng.toFixed(5); }
+                } catch (e) { /* pakai koordinat mentah bila gagal */ }
                 setCoords('origin', lat, lng);
                 originMarker.setLatLng([lat, lng]);
                 map.setView([lat, lng], 13);
                 clearRoutes();
-                showToast('✅ Lokasi Anda dipakai sebagai titik awal');
+                showToast('✅ Lokasi Anda dipakai sebagai titik awal (snap ke jalan)');
             }, () => showError('Gagal mendeteksi lokasi. Izinkan akses lokasi di browser.'), {
                 enableHighAccuracy: true, timeout: 8000,
             });
@@ -1441,6 +1450,7 @@
             refreshLiveTraffic();
             liveTrafficTimer = setInterval(refreshLiveTraffic, 15000);
             startGps();
+            requestWakeLock();
         }
 
         function stopGps() {
@@ -1461,7 +1471,11 @@
                         if (!routeData || !routeData.best) return;
                         gpsActive = true;
                         setGpsBadge(true);
-                        gpsTargetFrac = snapToRoute(pos.coords.latitude, pos.coords.longitude);
+                        gpsLat = pos.coords.latitude;
+                        gpsLng = pos.coords.longitude;
+                        const snap = snapToRoute(gpsLat, gpsLng);
+                        gpsTargetFrac = snap.frac;
+                        detectOffRoute(Math.sqrt(snap.dist) * 111000);
                     },
                     () => {
                         gpsActive = false;
@@ -1501,7 +1515,39 @@
                     best = { frac: Math.max(0, Math.min(1, (routeCumKm[i] + t * segKm) / totalKm)), dist };
                 }
             }
-            return best.frac;
+            return best;
+        }
+
+        function detectOffRoute(meters) {
+            if (!guidanceActive || rerouting || gpsTargetFrac == null) return;
+            const now = Date.now();
+            if (now < offRouteCooldown) return;
+            if (gpsTargetFrac > 0.97) return; // hampir tiba: jangan reroute
+            if (meters > 40) {
+                offRouteCooldown = now + 20000;
+                rerouteFromCurrent(gpsLat, gpsLng);
+            }
+        }
+
+        async function rerouteFromCurrent(lat, lng) {
+            if (rerouting) return;
+            rerouting = true;
+            const coords = routeData && routeData.best && routeData.best.coordinates;
+            if (!coords || coords.length < 2) { rerouting = false; return; }
+            const dLat = coords[coords.length - 1][0];
+            const dLng = coords[coords.length - 1][1];
+            showToast('🔄 Melenceng dari rute — menghitung ulang...');
+            setCoords('origin', +lat.toFixed(5), +lng.toFixed(5));
+            if (originMarker) originMarker.setLatLng([lat, lng]);
+            setCoords('dest', dLat, dLng);
+            if (destMarker) destMarker.setLatLng([dLat, dLng]);
+            clearRoutes();
+            endGuidance();
+            try {
+                await predictRoute(false);
+            } finally {
+                rerouting = false;
+            }
         }
 
         function movementTick() {
@@ -1835,6 +1881,7 @@
             guidanceActive = false;
             stopMovement();
             closeRouteFeed();
+            releaseWakeLock();
             document.getElementById('guidanceBar').classList.remove('shown');
             if ('speechSynthesis' in window) window.speechSynthesis.cancel();
             if (map && routeData && routeData.best) {
@@ -1850,6 +1897,19 @@
         function repeatGuidance() {
             const s = guideSteps[guideIdx];
             if (s && s.instruction) speak(s.instruction);
+        }
+
+        // ============ Wake Lock (jaga layar tetap menyala saat navigasi) ============
+        async function requestWakeLock() {
+            if (!('wakeLock' in navigator)) return;
+            try {
+                wakeLock = await navigator.wakeLock.request('screen');
+                wakeLock.addEventListener('release', () => { wakeLock = null; });
+            } catch (e) { /* izin ditolak atau tidak didukung */ }
+        }
+
+        function releaseWakeLock() {
+            if (wakeLock) { wakeLock.release(); wakeLock = null; }
         }
 
         function bandFactors(level) {
@@ -2046,6 +2106,14 @@ ${best.coordinates.map(c => c[0] + ',' + c[1] + ',0').join('\n')}
             loadModelStatus();
             loadConfigBadge();
             initRealtimeFeeds();
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+            }
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible' && guidanceActive) {
+                    requestWakeLock();
+                }
+            });
             const slider = document.getElementById('hourSlider');
             slider.value = new Date().getHours();
             slider.addEventListener('input', (e) => previewHourly(+e.target.value));
