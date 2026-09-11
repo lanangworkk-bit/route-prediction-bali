@@ -417,6 +417,7 @@
                 <h3>✅ Rute Terbaik</h3>
                 <div class="result-row"><span>Jarak</span><span id="rDistance">-</span></div>
                 <div class="result-row"><span>Estimasi Waktu</span><span id="rTime">-</span></div>
+                <div class="result-row"><span>Waktu Tiba</span><span id="rArrival">-</span></div>
                 <div class="result-row"><span>Skor Rute</span><span id="rScore">-</span></div>
                 <div class="result-row"><span>Lalu Lintas</span><span id="rTraffic">-</span></div>
                 <div class="result-row"><span>Cuaca</span><span id="rWeather">-</span></div>
@@ -430,6 +431,7 @@
                     <button class="action-btn" onclick="exportGpx()">📥 GPX</button>
                     <button class="action-btn" onclick="exportKml()">📥 KML</button>
                 </div>
+                <button class="action-btn" style="margin-top:8px;background:#004d99;color:#fff;border-color:#004d99;" onclick="startTracking()">🔴 Mulai Tracking Saya (live)</button>
                 <div class="btn-row">
                     <button class="action-btn" onclick="startTracking()" id="trackBtn">🔴 Mulai Tracking Live</button>
                     <button class="action-btn" onclick="reportIncident()">🚨 Lapor Insiden</button>
@@ -1383,6 +1385,7 @@
 
             document.getElementById('rDistance').textContent = `${best.distance_km} km`;
             document.getElementById('rTime').textContent = `${best.estimated_time_minutes} menit`;
+            document.getElementById('rArrival').textContent = arrivalTime(best.estimated_time_minutes);
             document.getElementById('rScore').textContent = `${best.overall_score}/100`;
 
             const traffic = best.road_conditions.traffic_level;
@@ -1412,6 +1415,15 @@
         function fmtTime(min) {
             const h = Math.floor(min / 60), m = Math.round(min % 60);
             return h > 0 ? `${h}j ${m}m` : `${m} menit`;
+        }
+
+        function arrivalTime(etaMinutes) {
+            try {
+                return new Date(Date.now() + Math.round(etaMinutes) * 60000)
+                    .toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+            } catch (e) {
+                return '-';
+            }
         }
 
         function renderCompareTable(geom) {
@@ -1490,9 +1502,12 @@
             const step = guideSteps[guideIdx];
             if (!step) return;
             document.getElementById('guidanceIcon').textContent = MANEUVER_ICONS[step.modifier] || MANEUVER_ICONS[step.type] || '➡';
+            const remaining = routeData && routeData.best
+                ? Math.round((guideSteps.length - 1 - guideIdx) / Math.max(1, guideSteps.length - 1) * routeData.best.estimated_time_minutes * 10) / 10
+                : step.time_minutes || 0;
             document.getElementById('guidanceText').innerHTML = `<span class="distance">${step.distance_km ? step.distance_km + ' km · ' : ''}</span>${escapeHtml(step.instruction)}`;
             document.getElementById('guidanceStepCount').textContent = guidanceActive && guideSteps.length > 1 ? `✳️ ${guideIdx + 1} / ${guideSteps.length}` : '';
-            document.getElementById('guidanceDistance').textContent = step.time_minutes ? `~${fmtTime(step.time_minutes)}` : '';
+            document.getElementById('guidanceDistance').textContent = remaining > 0 ? `~${fmtTime(remaining)} · Tiba ${arrivalTime(remaining)}` : '';
             if ('speechSynthesis' in window) window.speechSynthesis.cancel();
             if (announce) speak(step.instruction);
             if (guidanceTimer) clearTimeout(guidanceTimer);
@@ -1663,6 +1678,11 @@ ${best.coordinates.map(c => c[0] + ',' + c[1] + ',0').join('\n')}
             const slider = document.getElementById('hourSlider');
             slider.value = new Date().getHours();
             slider.addEventListener('input', (e) => previewHourly(+e.target.value));
+            ['originSearch', 'destSearch'].forEach(id => {
+                document.getElementById(id).addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') predictRoute();
+                });
+            });
             applyShareParams();
         });
     </script>

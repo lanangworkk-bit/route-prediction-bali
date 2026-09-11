@@ -14,6 +14,7 @@ Sistem prediksi rute terbaik untuk kendaraan di Bali menggunakan AI yang mempert
 - **Interactive Map** - Peta interaktif Leaflet langsung di halaman utama (bukan iframe): klik peta untuk menempatkan titik, marker bisa digeser (drag), live update
 - **Turn-by-Turn Navigation** - Panduan arah per belokan (OSRM steps) dalam Bahasa Indonesia, ikon manuver, jarak per langkah
 - **Panduan Otomatis A-Z (ala Google Maps)** - Setelah rute diprediksi, bar panduan sticky muncul di peta memberi arahan belokan demi belokan (`N / total`), diberi suara jika navigasi suara aktif, maju otomatis/lewat tombol "⚡ Langkah berikut", berhenti dengan "⏹ Selesai"
+- **Waktu Tiba** - Panel hasil & bar panduan menampilkan perkiraan jam tiba (diperbarui tiap auto-refresh 45 detik)
 - **Perbandingan Rute** - Tabel banding rute terbaik vs alternatif (jarak, waktu, lalu lintas, skor) + rincian per leg/segmen
 - **Pencarian Tempat (Autocomplete)** - Cari lokasi di Bali via Nominatim dengan saran instan
 - **Layer Peta** - Ganti tampilan: Jalan (OSM/Carto), Satelit (Esri), Medan (OpenTopoMap)
@@ -27,6 +28,7 @@ Sistem prediksi rute terbaik untuk kendaraan di Bali menggunakan AI yang mempert
 - **Rute Favorit & Riwayat Terakhir** - Simpan rute dengan nama, muat ulang sekali klik; 5 perjalanan terakhir ditampilkan di panel
 - **Lapor Hambatan Crowdsourced** - Laporkan macet/banjir/tutup jalan langsung dari peta; insiden memengaruhi skor & ETA rute pengguna lain; marker insiden sebar ke peta (TTL 2 jam)
 - **Tombol Lokasi GPS Saya** - Isi otomatis titik awal dengan lokasi perangkat saat ini
+- **Tracking Live Sekali Klik** - Tombol "🔴 Mulai Tracking Saya (live)" langsung di panel hasil; posisi kendaraan bergerak di peta + ETA tersisa terupdate, dengan tautan berbagi. `Enter` pada kolom asal/tujuan langsung memprediksi rute
 - **Riwayat Trip** - Setiap prediksi tersimpan ke SQLite, dapat di-retrain model dengan data nyata
 - **ML Models** - Model machine learning untuk prediksi dan scoring
 - **AI Real-time Engine (ML Terawasi)** - Model travel-time dilatih dari `trip_history` nyata dan diblend dengan estimasi heuristik (`blend_weight` naik seiring jumlah sampel). Status model & blend tampil live di UI (kartu "🤖 AI Real-time Engine")
