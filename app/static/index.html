@@ -180,6 +180,7 @@
             display: inline-flex; align-items: center; gap: 4px; background: rgba(255,255,255,0.12);
             padding: 4px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap;
         }
+        .arrival-band { color: #777; font-size: 11px; font-weight: 400; }
         .guidance-btn {
             border: 1px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.12);
             color: #fff; border-radius: 999px; padding: 9px 14px; font-size: 12px;
@@ -280,6 +281,7 @@
                     <div class="guidance-step-count" id="guidanceStepCount"></div>
                     <div class="guidance-progress"><div id="guidanceProgress"></div></div>
                 </div>
+                <button class="guidance-btn" onclick="repeatGuidance()" title="Ulangi petunjuk suara">🔊</button>
                 <div class="guidance-distance" id="guidanceDistance"></div>
                 <div class="guidance-traffic" id="guidanceTraffic" style="display:none;">🚦 <span id="guidanceTrafficText"></span></div>
                 <button class="guidance-btn guide-next" onclick="nextGuidance()">⚡ Langkah berikut</button>
@@ -429,7 +431,7 @@
                 <h3>✅ Rute Terbaik</h3>
                 <div class="result-row"><span>Jarak</span><span id="rDistance">-</span></div>
                 <div class="result-row"><span>Estimasi Waktu</span><span id="rTime">-</span></div>
-                <div class="result-row"><span>Waktu Tiba</span><span id="rArrival">-</span></div>
+                <div class="result-row"><span>Waktu Tiba</span><span><span id="rArrival">-</span> <span id="rArrivalBand" class="arrival-band"></span></span></div>
                 <div class="result-row"><span>Skor Rute</span><span id="rScore">-</span></div>
                 <div class="result-row"><span>Lalu Lintas</span><span id="rTraffic">-</span></div>
                 <div class="result-row"><span>Cuaca</span><span id="rWeather">-</span></div>
@@ -578,6 +580,7 @@
             }, { collapsed: true }).addTo(map);
 
             map.on('click', (e) => {
+                const rerouting = guidanceActive;
                 if (guidanceActive) endGuidance();
                 const lat = +e.latlng.lat.toFixed(5);
                 const lng = +e.latlng.lng.toFixed(5);
@@ -598,6 +601,10 @@
                     destMarker.setLatLng([lat, lng]);
                 } else {
                     addWaypoint(lat, lng);
+                }
+                if (rerouting) {
+                    showToast('🔄 Menghitung ulang rute ke lokasi baru...');
+                    predictRoute(true);
                 }
             });
 
@@ -1350,6 +1357,7 @@
             document.getElementById('rTime').textContent = fmtTime(routeData.best.estimated_time_minutes);
             const el = document.getElementById('rArrival');
             if (el) el.textContent = arrivalTime(routeData.best.estimated_time_minutes);
+            renderArrivalBand(routeData.best.estimated_time_minutes, p.traffic_level);
             const tEl = document.getElementById('rTraffic');
             if (tEl) tEl.innerHTML = TRAFFIC_LEVELS[p.traffic_level] || p.traffic_level;
             if (guidanceActive) showGuidanceStep(false);
@@ -1567,6 +1575,7 @@
             document.getElementById('rDistance').textContent = `${best.distance_km} km`;
             document.getElementById('rTime').textContent = `${best.estimated_time_minutes} menit`;
             document.getElementById('rArrival').textContent = arrivalTime(best.estimated_time_minutes);
+            renderArrivalBand(best.estimated_time_minutes, best.road_conditions.traffic_level);
             document.getElementById('rScore').textContent = `${best.overall_score}/100`;
 
             const traffic = best.road_conditions.traffic_level;
@@ -1711,6 +1720,28 @@
         function escapeHtml(t) {
             return String(t || '').replace(/[&<>"']/g, c =>
                 ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+
+        function repeatGuidance() {
+            const s = guideSteps[guideIdx];
+            if (s && s.instruction) speak(s.instruction);
+        }
+
+        function bandFactors(level) {
+            switch (level) {
+                case 'Lancar': return [0.85, 1.0];
+                case 'Padat': return [1.0, 1.25];
+                case 'Macet': return [1.1, 1.6];
+                default: return [0.95, 1.15];
+            }
+        }
+
+        function renderArrivalBand(minutes, level) {
+            const el = document.getElementById('rArrivalBand');
+            if (!el) return;
+            if (!minutes) { el.textContent = ''; return; }
+            const [loF, hiF] = bandFactors(level || 'Normal');
+            el.textContent = `⟪${arrivalTime(minutes * loF)}–${arrivalTime(minutes * hiF)}⟫`;
         }
 
         function exportGpx() {
