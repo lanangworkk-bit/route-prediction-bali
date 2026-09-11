@@ -17,8 +17,10 @@ from app.models.route import (
     RouteResponse,
 )
 from app.services import ai_eta_service
+from app.services.ai_search_service import search_parse
 from app.services.area_service import area_service
 from app.services.favorites_service import favorites_service
+from app.services.gemini_client import is_enabled as gemini_enabled
 from app.services.history_service import history_service
 from app.services.incident_service import incident_service
 from app.services.map_service import map_service
@@ -43,6 +45,10 @@ class FavoriteCreate(BaseModel):
     waypoints: list[Coordinate] = Field(default_factory=list)
     priority: str = "time"
     mode: str = "car"
+
+
+class AiSearchRequest(BaseModel):
+    query: str = Field(..., min_length=2, max_length=300)
 
 
 class IncidentCreate(BaseModel):
@@ -561,6 +567,44 @@ async def osrm_nearest(
     if snapped is None:
         return {"snapped": False, "lat": lat, "lng": lng}
     return {"snapped": True, "lat": snapped.lat, "lng": snapped.lng}
+
+
+@router.post("/ai/search")
+async def ai_search(body: AiSearchRequest):
+    """Pencarian bahasa alami: Gemini mengubah kalimat → tujuan + preferensi rute."""
+    if not gemini_enabled():
+        raise HTTPException(
+            status_code=400,
+            detail="GEMINI_API_KEY belum diisi. Tambahkan di .env lalu restart server.",
+        )
+    parsed = await asyncio.to_thread(search_parse, body.query)
+    if parsed is None:
+        raise HTTPException(
+            status_code=422, detail="Maaf, saya tidak bisa memahami permintaan itu."
+        )
+
+    dest = parsed["destination"]
+    suggestions: list[dict] = []
+    if dest:
+        suggestions = await asyncio.to_thread(place_service.search, dest, 5)
+        if not suggestions:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"Tidak menemukan '{dest}' di Bali. "
+                    "Coba sebutkan tempat/daerah yang jelas (mis. 'Pantai Kuta')."
+                ),
+            )
+
+    return {
+        "query": body.query,
+        "destination": dest,
+        "suggestions": suggestions,
+        "priority": parsed["priority"],
+        "mode": parsed["mode"],
+        "note": parsed["note"],
+        "provider": "gemini:" + get_settings().gemini_model,
+    }
 
 
 # ===================== POI (Lokasi Spesifik) =====================

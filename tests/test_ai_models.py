@@ -176,7 +176,7 @@ def test_gemini_blend_clamps_extreme():
 
 def test_gemini_disabled_without_key(monkeypatch):
     monkeypatch.setattr(
-        "app.services.ai_eta_service.get_settings",
+        "app.services.gemini_client.get_settings",
         lambda: Settings(gemini_api_key="", gemini_model="gemini-2.5-flash"),
     )
     assert is_enabled() is False
@@ -185,10 +185,8 @@ def test_gemini_disabled_without_key(monkeypatch):
 
 def test_refine_eta_parses_mocked_response(monkeypatch):
     fake_settings = Settings(gemini_api_key="test-key", gemini_model="gemini-2.5-flash")
-    monkeypatch.setattr(
-        "app.services.ai_eta_service.get_settings",
-        lambda: fake_settings,
-    )
+    monkeypatch.setattr("app.services.gemini_client.get_settings", lambda: fake_settings)
+    monkeypatch.setattr("app.services.ai_eta_service.is_enabled", lambda: True)
     mock_resp = MagicMock()
     mock_resp.json.return_value = {
         "candidates": [{"content": {"parts": [{"text": '{"eta_minutes": 42.5}'}]}}]

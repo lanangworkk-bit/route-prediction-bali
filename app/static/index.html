@@ -51,6 +51,13 @@
         .coordinate-row input { flex: 1; }
         .tiny-hint { font-size: 11px; color: #999; margin-top: 3px; }
         .search-wrap { position: relative; margin-top: 6px; }
+        .search-wrap.voice { display: flex; gap: 4px; }
+        .search-wrap.voice input { flex: 1; }
+        .ai-mic, .ai-go {
+            border: none; border-radius: 8px; font-size: 14px; cursor: pointer;
+            padding: 8px 10px; background: #e8f5e9; color: #1b5e20; flex: 0 0 auto;
+        }
+        .ai-mic.recording { background: #ef5350; color: #fff; animation: pulse 1s infinite; }
         .search-suggest {
             position: absolute; top: 100%; left: 0; right: 0; background: white;
             border: 1.5px solid #ddd; border-radius: 8px; max-height: 180px;
@@ -372,6 +379,14 @@
                 <input type="text" id="destSearch" placeholder="🔍 Cari tempat di Bali..." autocomplete="off">
                 <div class="search-suggest" id="destSuggest"></div>
             </div>
+
+            <h2>🤖 Asisten AI <span style="font-weight:normal;color:#999;">(bahasa alami)</span></h2>
+            <div class="search-wrap voice">
+                <input type="text" id="aiQuery" placeholder='🍹 "Cari tempat ngopi santai di Canggu..." atau tanya "Berapa menit lagi?"' autocomplete="off" onkeydown="if(event.key==='Enter')aiSearchSubmit()">
+                <button class="ai-mic" id="aiMicBtn" onclick="startAiVoice()" title="Bicara (Speech Recognition)">🎤</button>
+                <button class="ai-go" onclick="aiSearchSubmit()" title="Tanya AI">✨</button>
+            </div>
+            <div class="incident-marker-note" id="aiNoteOutput" style="display:none;margin-top:6px;"></div>
 
             <h2>🛑 Titik Singgah <span style="font-weight:normal;color:#999;">(opsional)</span></h2>
             <div id="waypoints"></div>
@@ -1636,6 +1651,84 @@
             if (posMarker) { map.removeLayer(posMarker); posMarker = null; }
             const pb = document.getElementById('guidanceProgress');
             if (pb) pb.style.width = '0%';
+        }
+
+        // ============ AI Asisten (pencarian bahasa alami + suara) ============
+        function aiSpeak(text) {
+            if (voiceEnabled) speak(text);
+        }
+
+        function aiShowNote(text) {
+            const el = document.getElementById('aiNoteOutput');
+            if (!el) return;
+            el.style.display = text ? 'block' : 'none';
+            el.textContent = text || '';
+        }
+
+        async function aiSearchSubmit() {
+            const q = (document.getElementById('aiQuery').value || '').trim();
+            if (!q) return;
+            const btn = document.querySelector('.ai-go');
+            if (btn) btn.disabled = true;
+            try {
+                const res = await fetch(`${API_BASE}/api/v1/ai/search`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: q }),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Gagal memproses permintaan');
+
+                const note = `${data.note || ''}${data.destination ? ` Tujuan: ${data.destination}.` : ''}`;
+                aiShowNote(note);
+                aiSpeak(note);
+
+                if (data.destination && data.suggestions && data.suggestions.length) {
+                    const s = data.suggestions[0];
+                    if (!document.getElementById('originLat').value) {
+                        setCoords('origin', -8.4095, 115.1889);
+                        originMarker.setLatLng([-8.4095, 115.1889]);
+                        showToast('📍 Asal belum diatur — memakai Denpasar. Klik "📡 Lokasi Saya" untuk yang akurat.');
+                    }
+                    const lat = +s.lat, lng = +s.lng;
+                    setCoords('dest', lat, lng);
+                    document.getElementById('destSearch').value = s.name;
+                    destMarker.setLatLng([lat, lng]);
+                    const mb = document.querySelector(`.mode-btn-opt[data-mode="${data.mode}"]`);
+                    if (mb) selectMode(mb);
+                    const pb = document.querySelector(`.radio-btn[data-priority="${data.priority === 'relaxed' ? 'traffic' : data.priority}"]`);
+                    if (pb) selectPriority(pb);
+                    clearRoutes();
+                    await predictRoute();
+                }
+            } catch (err) {
+                console.error(err);
+                aiShowNote('');
+                showToast('⚠ ' + (err.message || 'Gagal meminta AI'));
+            } finally {
+                const btn = document.querySelector('.ai-go');
+                if (btn) btn.disabled = false;
+            }
+        }
+
+        function startAiVoice() {
+            const btn = document.getElementById('aiMicBtn');
+            const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SR) { showToast('🎤 Speech Recognition tidak didukung browser ini (pakai Chrome/Edge)'); return; }
+            const rec = new SR();
+            rec.lang = 'id-ID';
+            rec.interimResults = false;
+            rec.maxAlternatives = 1;
+            rec.onresult = (e) => {
+                const text = e.results[0][0].transcript;
+                document.getElementById('aiQuery').value = text;
+                btn.classList.remove('recording');
+                aiSearchSubmit();
+            };
+            rec.onerror = () => btn.classList.remove('recording');
+            rec.onend = () => btn.classList.remove('recording');
+            btn.classList.add('recording');
+            rec.start();
         }
 
         async function predictRoute(auto) {

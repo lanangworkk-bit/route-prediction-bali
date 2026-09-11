@@ -1,19 +1,9 @@
-import json
 import logging
 
-import requests
-
 from app.config import get_settings
+from app.services.gemini_client import generate_json, is_enabled
 
 logger = logging.getLogger(__name__)
-
-_GENERATE_URL = (
-    "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-)
-
-
-def is_enabled() -> bool:
-    return bool((get_settings().gemini_api_key or "").strip())
 
 
 def refine_eta(context: dict, *, timeout: float = 8.0) -> tuple[float | None, str | None]:
@@ -24,8 +14,7 @@ def refine_eta(context: dict, *, timeout: float = 8.0) -> tuple[float | None, st
     dengan model lokal.
     """
     settings = get_settings()
-    key = (settings.gemini_api_key or "").strip()
-    if not key:
+    if not is_enabled():
         return None, None
     model = settings.gemini_model
 
@@ -34,40 +23,20 @@ def refine_eta(context: dict, *, timeout: float = 8.0) -> tuple[float | None, st
         "(jarak, waktu dasar, lalu lintas, cuaca, insiden, jam, moda) ada di JSON "
         "berikut. Berikan satu perkiraan realistis untuk 'eta_minutes' dalam bentuk "
         "JSON ketat. Jangan menambah penjelasan apa pun.\n"
-        + json.dumps(context, ensure_ascii=False)
+        + str(context)
     )
 
-    body = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "systemInstruction": {
-            "parts": [{"text": 'Return strict JSON: {"eta_minutes": number}'}]
-        },
-        "generationConfig": {
-            "temperature": 0.2,
-            "maxOutputTokens": 32,
-            "responseMimeType": "application/json",
-        },
-    }
-
+    data = generate_json(
+        prompt,
+        'Return strict JSON: {"eta_minutes": number}',
+        max_output_tokens=32,
+        timeout=timeout,
+    )
+    if data is None:
+        return None, None
     try:
-        resp = requests.post(
-            _GENERATE_URL.format(model=model),
-            json=body,
-            headers={"x-goog-api-key": key},
-            timeout=timeout,
-        )
-        resp.raise_for_status()
-        payload = resp.json()
-        text = (
-            (payload.get("candidates") or [{}])[0]
-            .get("content", {})
-            .get("parts", [{}])[0]
-            .get("text", "")
-            .strip()
-        )
-        eta = float(json.loads(text).get("eta_minutes"))
-    except Exception as exc:  # noqa: BLE001 - kegagalan harus degradasi tenang
-        logger.warning("Gemini ETA refinement gagal: %s", exc)
+        eta = float(data.get("eta_minutes"))
+    except (TypeError, ValueError):
         return None, None
     if not (0 < eta < 3000):
         return None, None

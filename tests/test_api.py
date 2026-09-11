@@ -305,6 +305,43 @@ def test_osrm_nearest_endpoint_fallback(monkeypatch):
     assert response.json()["snapped"] is False
 
 
+def test_ai_search_requires_key():
+    response = client.post("/api/v1/ai/search", json={"query": "cari pantai kuta"})
+    assert response.status_code == 400
+    assert "GEMINI_API_KEY" in response.json()["detail"]
+
+
+def test_ai_search_endpoint_flow(monkeypatch):
+    from unittest.mock import patch
+
+    from app.services.place_service import place_service
+
+    monkeypatch.setattr("app.api.routes.gemini_enabled", lambda: True)
+    monkeypatch.setattr(
+        "app.api.routes.search_parse",
+        lambda query, **kwargs: {
+            "destination": "Pantai Kuta",
+            "priority": "time",
+            "mode": "car",
+            "note": "Rute menuju Pantai Kuta.",
+        },
+    )
+    with patch.object(
+        place_service,
+        "search",
+        return_value=[{"name": "Pantai Kuta", "lat": -8.7185, "lng": 115.1686}],
+    ) as mock_search:
+        response = client.post("/api/v1/ai/search", json={"query": "ke pantai kuta"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["destination"] == "Pantai Kuta"
+    assert body["priority"] == "time"
+    assert body["mode"] == "car"
+    assert body["suggestions"][0]["name"] == "Pantai Kuta"
+    mock_search.assert_called_once_with("Pantai Kuta", 5)
+
+
 def test_realtime_incidents_sse():
     import asyncio
 
