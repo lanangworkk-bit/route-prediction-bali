@@ -78,10 +78,16 @@ cp .env.example .env
 ### 5. Jalankan Aplikasi
 
 ```bash
+./start.sh            # instal dependensi otomatis (sekali) lalu jalankan di :9000
+# atau manual:
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Aplikasi akan berjalan di http://localhost:8000
+Variabel env: `PORT` (default 9000), `HOST`, `RELOAD=1` untuk auto-reload saat pengembangan. `./start.sh` juga membuat `.env` dari `.env.example` bila belum ada.
+
+Aplikasi akan berjalan di http://localhost:9000
+
+Model ML yang sudah dilatih (travel-time AI, traffic, route scorer) **disimpan otomatis ke disk** dan langsung dimuat ulang saat server dinyalakan — AI sudah aktif tanpa perlu retrain manual setelah restart.
 
 Routing menggunakan OSRM public server (https://router.project-osrm.org) secara default. Untuk memakai server OSRM sendiri, atur `OSRM_BASE_URL` di `.env`. Jika OSRM tidak tersedia, sistem otomatis fallback ke graph OSMnx lokal atau garis lurus.
 

@@ -124,3 +124,29 @@ def test_history_time_rows_schema():
     for row in rows:
         assert set(travel_time_model.info()["features"]) <= set(row.keys())
         assert "estimated_time_minutes" in row
+
+
+def test_travel_time_persistence_roundtrip(tmp_path):
+    first = TravelTimeModel()
+    first.model_path = str(tmp_path / "model.pkl")
+    first._meta_path = str(tmp_path / "meta.json")
+    first.train(_rows(40))
+
+    restored = TravelTimeModel()
+    restored.model_path = first.model_path
+    restored._meta_path = first._meta_path
+    restored._load_model()
+
+    assert restored.is_trained is True
+    assert restored.samples == first.samples
+    assert restored.info()["blend_weight"] == first.info()["blend_weight"]
+    pred = restored.predict({
+        "distance_km": 12.0,
+        "traffic_score": 0.6,
+        "weather_impact": 0.9,
+        "hour": 8,
+        "day_of_week": 0,
+        "is_peak": 1,
+        "mode_factor": 1.0,
+    })
+    assert pred is not None and pred > 0

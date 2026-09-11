@@ -3,14 +3,8 @@ __pycache__/
 *.pyc
 .git/
 .env
-data/
-*.pkl
 *.db
-route_prediction.db
+data/processed/*.pkl
+data/processed/*_meta.json
 tests/
-.dockerignore
-Dockerfile
-docker-compose.yml
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
+README.md

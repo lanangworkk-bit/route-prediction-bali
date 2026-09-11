@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import time
@@ -45,6 +46,7 @@ class TravelTimeModel:
         self.metrics: dict = {}
         self.trained_at: float | None = None
         self.model_path = "data/processed/travel_time_model.pkl"
+        self._meta_path = "data/processed/travel_time_model_meta.json"
 
     def can_predict(self) -> bool:
         return self.is_trained and self.samples >= self.settings.ml_min_history_samples
@@ -142,12 +144,27 @@ class TravelTimeModel:
     def _save_model(self):
         os.makedirs(os.path.dirname(self.model_path), exist_ok=True)
         joblib.dump(self.model, self.model_path)
+        meta = {
+            "samples": self.samples,
+            "trained_at": self.trained_at,
+            "metrics": self.metrics,
+        }
+        with open(self._meta_path, "w") as f:
+            json.dump(meta, f)
 
     def _load_model(self):
         if os.path.exists(self.model_path):
             self.model = joblib.load(self.model_path)
             self.is_trained = True
-            logger.info(f"Travel-time model loaded from {self.model_path}")
+            if os.path.exists(self._meta_path):
+                with open(self._meta_path) as f:
+                    meta = json.load(f)
+                self.samples = int(meta.get("samples") or 0)
+                self.trained_at = meta.get("trained_at")
+                self.metrics = meta.get("metrics") or {}
+            logger.info(
+                f"Travel-time model loaded from {self.model_path} ({self.samples} samples)"
+            )
 
 
 travel_time_model = TravelTimeModel()

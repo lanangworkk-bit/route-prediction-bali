@@ -78,6 +78,22 @@ class ModelRegistry:
             with _TRAIN_LOCK:
                 self.training = False
 
+    def load_saved(self) -> None:
+        """Reload persisted ML models at startup so AI is active right away."""
+        travel_time_model._load_model()
+        traffic_predictor._load_model()
+        route_scorer._load_model()
+        count = history_service.get_count()
+        for predictor in (traffic_predictor, route_scorer):
+            predictor.history_samples = min(
+                int(count), self.settings.ai_blend_max_samples
+            )
+        logger.info(
+            f"Saved models loaded | history={count} "
+            f"| travel_time={travel_time_model.samples}s "
+            f"can_predict={travel_time_model.can_predict()}"
+        )
+
     def info(self) -> dict:
         traffic_blend = traffic_predictor.history_samples / max(
             1, self.settings.ai_blend_max_samples

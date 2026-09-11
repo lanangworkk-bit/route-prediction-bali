@@ -1,0 +1,1 @@
+{"samples": 50, "trained_at": 1789092038.8347871, "metrics": {"mae_minutes": 4.74, "r2": 0.982, "n_train": 40, "n_test": 10}}

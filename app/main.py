@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import router
 from app.config import get_settings
+from app.ml.registry import registry
 from app.ml.route_scorer import route_scorer
 from app.ml.traffic_predictor import traffic_predictor
 from app.services.map_service import map_service
@@ -58,11 +59,16 @@ async def health_check():
 async def startup_event():
     logger.info("Starting up Route Prediction API...")
 
-    logger.info("Training traffic prediction model...")
-    traffic_predictor.train()
+    # Muat model yang sudah dilatih dari disk agar AI langsung aktif.
+    registry.load_saved()
 
-    logger.info("Training route scorer model...")
-    route_scorer.train()
+    # Latih model sintetis hanya pada boot pertama (fallback).
+    if not traffic_predictor.is_trained:
+        logger.info("Training traffic prediction model...")
+        traffic_predictor.train()
+    if not route_scorer.is_trained:
+        logger.info("Training route scorer model...")
+        route_scorer.train()
 
     logger.info("Map graph will be loaded on first request (or use fallback routing)")
 
