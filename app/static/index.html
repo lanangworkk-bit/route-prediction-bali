@@ -285,7 +285,7 @@
                 <div class="guidance-icon" id="guidanceIcon">🚩</div>
                 <div class="guidance-text">
                     <div id="guidanceText">Memulai panduan...</div>
-                    <div class="guidance-step-count" id="guidanceStepCount"></div>
+                    <div class="guidance-step-count" id="guidanceStepCount"><span id="gpsStatus" style="color:#b0bec5;">⏱ Simulasi</span></div>
                     <div class="guidance-progress"><div id="guidanceProgress"></div></div>
                 </div>
                 <button class="guidance-btn" onclick="repeatGuidance()" title="Ulangi petunjuk suara">🔊</button>
@@ -503,6 +503,7 @@
         let routeFeed = null, lastIncidentPenalty = 0;
         let posMarker = null, movementTimer = null, routeElapsed = 0, routeCumKm = [];
         let liveTrafficTimer = null, lastChosenKm = null;
+        let gpsWatchId = null, gpsActive = false, gpsTargetFrac = null, smoothFrac = 0;
         const MOVE_DT = 0.2, EARTH_R = 6371;
         const waypointMarkers = [];
         const waypointCards = [];
@@ -1406,8 +1407,9 @@
         function startMovement() {
             if (movementTimer || !routeData || !routeData.best || !routeData.best.coordinates.length) return;
             routeElapsed = 0;
+            smoothFrac = 0;
+            gpsTargetFrac = null;
             routeCumKm = buildRouteCumulative(routeData.best.coordinates);
-            guideCumKm = buildRouteCumulative(routeData.best.coordinates);
             if (!posMarker) {
                 posMarker = L.marker([0, 0], {
                     icon: L.divIcon({ html: '<div style="font-size:22px;filter:drop-shadow(0 2px 3px rgba(0,0,0,0.5));">🚗</div>', className: '', iconSize: [26, 26] }),
@@ -1417,14 +1419,82 @@
             movementTimer = setInterval(movementTick, MOVE_DT * 1000);
             refreshLiveTraffic();
             liveTrafficTimer = setInterval(refreshLiveTraffic, 15000);
+            startGps();
+        }
+
+        function stopGps() {
+            if (gpsWatchId != null) {
+                navigator.geolocation.clearWatch(gpsWatchId);
+                gpsWatchId = null;
+            }
+            gpsActive = false;
+            gpsTargetFrac = null;
+        }
+
+        function startGps() {
+            if (!('geolocation' in navigator)) return;
+            stopGps();
+            try {
+                gpsWatchId = navigator.geolocation.watchPosition(
+                    (pos) => {
+                        if (!routeData || !routeData.best) return;
+                        gpsActive = true;
+                        setGpsBadge(true);
+                        gpsTargetFrac = snapToRoute(pos.coords.latitude, pos.coords.longitude);
+                    },
+                    () => {
+                        gpsActive = false;
+                        gpsTargetFrac = null;
+                        setGpsBadge(false);
+                    },
+                    { enableHighAccuracy: true, maximumAge: 4000, timeout: 12000 }
+                );
+            } catch (e) {
+                gpsActive = false;
+                setGpsBadge(false);
+            }
+        }
+
+        function setGpsBadge(on) {
+            const el = document.getElementById('gpsStatus');
+            if (!el) return;
+            el.textContent = on ? '🛰 GPS Nyata' : '⏱ Simulasi';
+            el.style.color = on ? '#42d77d' : '#b0bec5';
+        }
+
+        function snapToRoute(lat, lng) {
+            const coords = routeData.best.coordinates;
+            let best = { frac: 0, dist: Infinity };
+            for (let i = 0; i < coords.length - 1; i++) {
+                const ax = coords[i][1], ay = coords[i][0];
+                const bx = coords[i + 1][1], by = coords[i + 1][0];
+                const dx = bx - ax, dy = by - ay;
+                const len2 = dx * dx + dy * dy;
+                let t = len2 > 0 ? ((lng - ax) * dx + (lat - ay) * dy) / len2 : 0;
+                t = Math.max(0, Math.min(1, t));
+                const px = ax + t * dx, py = ay + t * dy;
+                const dist = (lng - px) * (lng - px) + (lat - py) * (lat - py);
+                if (dist < best.dist) {
+                    const segKm = routeCumKm[i + 1] - routeCumKm[i];
+                    const totalKm = routeCumKm[routeCumKm.length - 1] || 1;
+                    best = { frac: Math.max(0, Math.min(1, (routeCumKm[i] + t * segKm) / totalKm)), dist };
+                }
+            }
+            return best.frac;
         }
 
         function movementTick() {
             if (!routeData || !routeData.best || routeData.best.coordinates.length < 2) return;
-            const eta = routeData.best.estimated_time_minutes;
-            if (!eta || eta <= 0) return;
-            routeElapsed += MOVE_DT;
-            const frac = Math.min(1, routeElapsed / (eta * 60));
+            if (!gpsActive) {
+                const eta = routeData.best.estimated_time_minutes;
+                if (!eta || eta <= 0) return;
+                routeElapsed += MOVE_DT;
+                const sim = Math.min(1, routeElapsed / (eta * 60));
+                smoothFrac += (sim - smoothFrac) * 0.35;
+            } else if (gpsTargetFrac != null) {
+                smoothFrac += (gpsTargetFrac - smoothFrac) * 0.15;
+            }
+            const frac = Math.max(0, Math.min(1, smoothFrac));
             const pt = routePointAtFrac(frac);
             posMarker.setLatLng([pt[1], pt[0]]);
             const totalKm = routeCumKm[routeCumKm.length - 1] || 1;
@@ -1466,7 +1536,7 @@
         function renderGuidanceStatus() {
             if (!routeData || !routeData.best || !routeData.best.estimated_time_minutes) return '';
             const eta = routeData.best.estimated_time_minutes;
-            const frac = (movementTimer && routeCumKm.length) ? Math.min(1, routeElapsed / (eta * 60)) : 0;
+            const frac = routeCumKm.length ? Math.min(1, smoothFrac) : 0;
             const totalKm = routeCumKm.length ? routeCumKm[routeCumKm.length - 1] : (routeData.best.distance_km || 0);
             const leftKm = Math.max(0, totalKm * (1 - frac));
             const leftMin = Math.max(0, Math.round(eta * (1 - frac) * 10) / 10);
@@ -1492,6 +1562,8 @@
         function stopMovement() {
             if (movementTimer) { clearInterval(movementTimer); movementTimer = null; }
             if (liveTrafficTimer) { clearInterval(liveTrafficTimer); liveTrafficTimer = null; }
+            stopGps();
+            setGpsBadge(false);
             const chip = document.getElementById('guidanceTraffic');
             if (chip) chip.style.display = 'none';
             if (posMarker) { map.removeLayer(posMarker); posMarker = null; }
