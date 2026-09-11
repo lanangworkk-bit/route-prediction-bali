@@ -99,7 +99,7 @@
         table.compare th, table.compare td {
             padding: 6px 7px; border-bottom: 1px solid #e0e0e0; text-align: left;
         }
-        table.compare tr.best row { background: #e8f5e9; }
+        table.compare tr.best { background: #e8f5e9; }
         tr.best td { background: #e8f5e9; font-weight: 600; }
         .legs-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 6px; }
         .legs-table th, .legs-table td {
@@ -453,7 +453,6 @@
                     <button class="action-btn" onclick="exportGpx()">📥 GPX</button>
                     <button class="action-btn" onclick="exportKml()">📥 KML</button>
                 </div>
-                <button class="action-btn" style="margin-top:8px;background:#004d99;color:#fff;border-color:#004d99;" onclick="startTracking()">🔴 Mulai Tracking Saya (live)</button>
                 <div class="btn-row">
                     <button class="action-btn" onclick="startTracking()" id="trackBtn">🔴 Mulai Tracking Live</button>
                     <button class="action-btn" onclick="reportIncident()">🚨 Lapor Insiden</button>
@@ -499,7 +498,8 @@
         let trackStream = null, trackMarker = null, trackSessionId = null;
         let incidentPending = null;
         let legendControl = null;
-        let guideSteps = [], guideIdx = 0, guidanceActive = false, guidanceTimer = null;
+        let waypointsChangeWired = false;
+        let guideSteps = [], guideIdx = 0, guidanceActive = false;
         let routeFeed = null, lastIncidentPenalty = 0;
         let posMarker = null, movementTimer = null, routeElapsed = 0, routeCumKm = [];
         let liveTrafficTimer = null, lastChosenKm = null;
@@ -735,7 +735,10 @@
             document.getElementById('waypoints').appendChild(card);
             waypointCards.push(card);
             card.querySelectorAll('input').forEach(inp => inp.addEventListener('input', () => ensureWaypointMarker(card)));
-            document.getElementById('waypoints').addEventListener('change', () => clearRoutes());
+            if (!waypointsChangeWired) {
+                waypointsChangeWired = true;
+                document.getElementById('waypoints').addEventListener('change', () => clearRoutes());
+            }
 
             if (lat && lng) {
                 const marker = L.circleMarker([lat, lng], {
@@ -913,7 +916,7 @@
                     L.marker([p.lat, p.lng], {
                         icon: L.divIcon({ html: `<span style="font-size:18px;">${icon}</span>`, className: '', iconSize: [20, 20] }),
                     })
-                        .bindPopup(`<b>${icon} ${p.name}</b><br>${p.note || ''}<br><i>${p.regency}</i><br><button onclick="pickPoi(this)" data-lat="${p.lat}" data-lng="${p.lng}">🚕 Jadikan tujuan</button>`)
+                        .bindPopup(`<b>${icon} ${escapeHtml(p.name)}</b><br>${escapeHtml(p.note || '')}<br><i>${escapeHtml(p.regency)}</i><br><button onclick="pickPoi(this)" data-lat="${p.lat}" data-lng="${p.lng}">🚕 Jadikan tujuan</button>`)
                         .addTo(poiLayer);
                 });
             } catch (e) { console.error(e); }
@@ -982,7 +985,7 @@
                     L.marker([i.lat, i.lng], {
                         icon: L.divIcon({ html: `<span style="font-size:20px;">${i.icon}</span>`, className: '', iconSize: [22, 22] }),
                     })
-                        .bindPopup(`<b>${i.icon} ${i.type_label}</b><br>${i.description || ''}<br><i>${i.age_minutes} menit lalu</i>`)
+                        .bindPopup(`<b>${i.icon} ${escapeHtml(i.type_label)}</b><br>${escapeHtml(i.description || '')}<br><i>${i.age_minutes} menit lalu</i>`)
                         .addTo(incidentLayer);
                 });
             } catch (e) { console.error(e); }
@@ -1018,7 +1021,7 @@
                 data.favorites.forEach(f => {
                     const item = document.createElement('div');
                     item.className = 'fav-item';
-                    item.innerHTML = `<b>${f.name}</b><div class="incident-marker-note">${f.distance_km ? '' : ''}${f.origin_lat},${f.origin_lng} → ${f.dest_lat},${f.dest_lng}</div>
+                    item.innerHTML = `<b>${escapeHtml(f.name)}</b><div class="incident-marker-note">${f.origin_lat},${f.origin_lng} → ${f.dest_lat},${f.dest_lng}</div>
                         <div class="fav-actions">
                             <button onclick="useFavorite(${f.id})">▶ Pakai</button>
                             <button onclick="deleteFavorite(${f.id})">✕ Hapus</button>
@@ -1042,7 +1045,7 @@
                     waypointCards.length = 0;
                     waypointMarkers.forEach(m => map.removeLayer(m));
                     waypointMarkers.length = 0;
-                    fav.waypoints.forEach(w => addWaypoint(w.lat, w.lng));
+                    fav.waypoints && fav.waypoints.forEach(w => addWaypoint(w.lat, w.lng));
                     if (fav.priority) {
                         const btn = document.querySelector(`.radio-btn[data-priority="${fav.priority}"]`);
                         if (btn) selectPriority(btn);
@@ -1288,9 +1291,11 @@
         }
 
         // ============ Realtime SSE feeds (live incidents & model) ============
+        let realtimeIncidentStream = null;
         function initRealtimeFeeds() {
-            const es = new EventSource(`${API_BASE}/api/v1/realtime/incidents`);
-            es.onmessage = (e) => {
+            if (realtimeIncidentStream) realtimeIncidentStream.close();
+            realtimeIncidentStream = new EventSource(`${API_BASE}/api/v1/realtime/incidents`);
+            realtimeIncidentStream.onmessage = (e) => {
                 let msg = null;
                 try { msg = JSON.parse(e.data); } catch (_) { return; }
                 if (!msg || !msg.type) return;
@@ -1303,6 +1308,7 @@
                     loadModelStatus();
                 }
             };
+            realtimeIncidentStream.onerror = () => { };
         }
 
         // ============ Pratinjau Lalu Lintas per jam ============
@@ -1330,6 +1336,7 @@
         }
 
         // ============ Live ETA route feed (SSE) ============
+        let routeFeedRetryTries = 0;
         function closeRouteFeed() {
             if (routeFeed) { routeFeed.close(); routeFeed = null; }
             document.getElementById('liveEtaDot').style.display = 'none';
@@ -1337,9 +1344,10 @@
 
         function connectRouteFeed(geom) {
             closeRouteFeed();
+            routeFeedRetryTries = 0;
             lastIncidentPenalty = 0;
             const best = geom.best;
-            const routeMode = document.querySelector('input[name="travelMode"]:checked').value;
+            const routeMode = selectedMode;
             const coords = best.coordinates
                 .filter((_, i) => i % 3 === 0)
                 .map(c => `${c[1]},${c[0]}`) // [lng,lat] -> lat,lng
@@ -1358,9 +1366,21 @@
             routeFeed = new EventSource(url);
             routeFeed.onmessage = (e) => {
                 const msg = JSON.parse(e.data);
-                if (msg.type === 'route_pulse') applyRoutePulse(msg.payload);
+                if (msg.type === 'route_pulse') {
+                    applyRoutePulse(msg.payload);
+                    routeFeedRetryTries = 0;
+                }
             };
-            routeFeed.onerror = () => { closeRouteFeed(); showToast('⚠ Live ETA berhenti'); };
+            routeFeed.onerror = () => {
+                closeRouteFeed();
+                if (!routeData) return;
+                routeFeedRetryTries++;
+                if (routeFeedRetryTries <= 3) {
+                    setTimeout(() => { if (routeData) connectRouteFeed(routeData); }, 5000 * routeFeedRetryTries);
+                } else {
+                    showToast('⚠ Live ETA berhenti (koneksi SSE gagal)');
+                }
+            };
         }
 
         function applyRoutePulse(p) {
@@ -1372,7 +1392,7 @@
             if (el) el.textContent = arrivalTime(routeData.best.estimated_time_minutes);
             renderArrivalBand(routeData.best.estimated_time_minutes, p.traffic_level);
             const tEl = document.getElementById('rTraffic');
-            if (tEl) tEl.innerHTML = TRAFFIC_LEVELS[p.traffic_level] || p.traffic_level;
+            if (tEl) tEl.innerHTML = escapeHtml(TRAFFIC_LEVELS[p.traffic_level] || p.traffic_level);
             if (guidanceActive) showGuidanceStep(false);
             if (p.incident_penalty > lastIncidentPenalty && p.incident_penalty > 0) {
                 showToast('⚠ Insiden baru menambah waktu: +' + p.incident_penalty + ' mnt');
@@ -1678,7 +1698,7 @@
             const traffic = best.road_conditions.traffic_level;
             const trafficBadge = traffic === 'Lancar' ? 'badge-green'
                 : (traffic === 'Macet' || traffic === 'Padat') ? 'badge-red' : 'badge-yellow';
-            document.getElementById('rTraffic').innerHTML = `<span class="badge ${trafficBadge}">${traffic}</span>`;
+            document.getElementById('rTraffic').innerHTML = `<span class="badge ${trafficBadge}">${escapeHtml(traffic)}</span>`;
 
             document.getElementById('rWeather').textContent = weather.condition;
             document.getElementById('rAdvice').textContent = weather.impact;
@@ -1722,7 +1742,7 @@
                     <td>${isBest ? '⭐ Terbaik' : `Rute ${i}`}</td>
                     <td>${r.distance_km} km</td>
                     <td>${fmtTime(r.estimated_time_minutes)}</td>
-                    <td>${r.traffic_level}</td>
+                    <td>${escapeHtml(r.traffic_level)}</td>
                     <td>${r.overall_score}/100</td>
                 </tr>`;
             });
@@ -1734,7 +1754,7 @@
             const first = predict.best_route.coordinates?.[0];
             const stops = [
                 { label: 'Asal', lat: first?.lat ?? 0, lng: first?.lng ?? 0 },
-                ...predict.waypoints.map((w, i) => ({ label: `Titik ${i + 1}`, lat: w.lat, lng: w.lng })),
+                ...(predict.waypoints || []).map((w, i) => ({ label: `Titik ${i + 1}`, lat: w.lat, lng: w.lng })),
                 { label: 'Tujuan', lat: predict.destination.lat, lng: predict.destination.lng },
             ];
             const legs = best.legs && best.legs.length ? best.legs : [];
@@ -1743,7 +1763,7 @@
                 legs.map((leg, i) => {
                     const from = stops[i] || {}, to = stops[i + 1] || {};
                     return `<tr>
-                        <td>${from.label || '?'} → ${to.label || '?'}</td>
+                        <td>${escapeHtml(from.label || '?')} → ${escapeHtml(to.label || '?')}</td>
                         <td>${leg.distance_km} km</td>
                         <td>${fmtTime(leg.time_minutes)}</td>
                         <td>${leg.steps} petunjuk</td>
@@ -1760,8 +1780,8 @@
                     <div class="direction" data-step="${i}">
                         <div class="direction-icon">${MANEUVER_ICONS[s.modifier] || MANEUVER_ICONS[s.type] || '➡'}</div>
                         <div class="direction-text">
-                            <b>${i + 1}. ${s.instruction}</b>
-                            <div style="color:#777;font-size:11px;">${s.road_name || ''}</div>
+                            <b>${i + 1}. ${escapeHtml(s.instruction)}</b>
+                            <div style="color:#777;font-size:11px;">${escapeHtml(s.road_name || '')}</div>
                         </div>
                         <div class="direction-distance">${s.distance_km ? s.distance_km + ' km' : ''}</div>
                     </div>`).join('')
@@ -1807,7 +1827,6 @@
             guidanceActive = false;
             stopMovement();
             closeRouteFeed();
-            if (guidanceTimer) clearTimeout(guidanceTimer);
             document.getElementById('guidanceBar').classList.remove('shown');
             if ('speechSynthesis' in window) window.speechSynthesis.cancel();
             if (map && routeData && routeData.best) {

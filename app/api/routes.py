@@ -398,9 +398,12 @@ async def realtime_incidents():
     """SSE feed: pushed whenever a hazard is reported or resolved."""
     async def event_generator():
         yield _sse_event({"event": "init", "type": "incidents_init"})
-        async for msg in incident_feed.subscribe():
-            yield _sse_event({**msg, "event": "incident"})
-            yield "event: ping\ndata: keepalive\n\n"
+        try:
+            async for msg in incident_feed.subscribe():
+                yield _sse_event({**msg, "event": "incident"})
+                yield "event: ping\ndata: keepalive\n\n"
+        except asyncio.CancelledError:
+            raise
 
     return StreamingResponse(
         event_generator(),
@@ -425,14 +428,17 @@ async def realtime_traffic(
     interval = interval_s or get_settings().realtime_traffic_interval_s
 
     async def event_generator():
-        while True:
-            yield _sse_event({
-                "event": "traffic",
-                "type": "traffic_pulse",
-                "payload": traffic_service.get_traffic_now(lat, lng),
-            })
-            yield "event: ping\ndata: keepalive\n\n"
-            await asyncio.sleep(interval)
+        try:
+            while True:
+                yield _sse_event({
+                    "event": "traffic",
+                    "type": "traffic_pulse",
+                    "payload": traffic_service.get_traffic_now(lat, lng),
+                })
+                yield "event: ping\ndata: keepalive\n\n"
+                await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            raise
 
     return StreamingResponse(
         event_generator(),
@@ -555,11 +561,12 @@ async def pois_near(
     radius_km: float = Query(15, ge=1, le=50),
     limit: int = Query(60, ge=1, le=200),
 ):
+    pois = poi_service.near(lat, lng, radius_km, limit)
     return {
         "center": {"lat": lat, "lng": lng},
         "radius_km": radius_km,
-        "total": len(poi_service.near(lat, lng, radius_km, limit)),
-        "pois": poi_service.near(lat, lng, radius_km, limit),
+        "total": len(pois),
+        "pois": pois,
     }
 
 
@@ -579,10 +586,8 @@ async def list_incidents(
     lng: float = Query(None, ge=-180, le=180),
     radius_km: float = Query(25, ge=0, le=100),
 ):
-    return {
-        "total": len(incident_service.list_incidents(lat, lng, radius_km)),
-        "incidents": incident_service.list_incidents(lat, lng, radius_km),
-    }
+    incidents = incident_service.list_incidents(lat, lng, radius_km)
+    return {"total": len(incidents), "incidents": incidents}
 
 
 @router.post("/incidents")
