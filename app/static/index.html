@@ -175,7 +175,7 @@
         .guidance-text .distance { color: #ffd54f; font-weight: 700; }
         .guidance-step-count { font-size: 11px; color: #b0bec5; }
         .guidance-progress { height: 4px; background: rgba(255,255,255,0.18); border-radius: 2px; margin-top: 6px; overflow: hidden; }
-        #guidanceProgress { height: 100%; width: 0; background: #42d77d; transition: width 0.5s linear; }
+        #guidanceProgress { height: 100%; width: 0; background: #42d77d; transition: width 0.15s linear; }
         .guidance-traffic {
             display: inline-flex; align-items: center; gap: 4px; background: rgba(255,255,255,0.12);
             padding: 4px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap;
@@ -503,7 +503,7 @@
         let routeFeed = null, lastIncidentPenalty = 0;
         let posMarker = null, movementTimer = null, routeElapsed = 0, routeCumKm = [];
         let liveTrafficTimer = null, lastChosenKm = null;
-        const MOVE_DT = 2, EARTH_R = 6371;
+        const MOVE_DT = 0.2, EARTH_R = 6371;
         const waypointMarkers = [];
         const waypointCards = [];
 
@@ -1204,7 +1204,7 @@
             stopAutoRefresh();
             if (trackStream) return;
             autoRefreshTimer = setInterval(async () => {
-                if (!routeData) return;
+                if (!routeData || guidanceActive) return;
                 const info = getRouteInfo();
                 if (!info) return;
                 const wpStr = info.waypoints.map(w => `${w.lat},${w.lng}`).join(';');
@@ -1444,7 +1444,16 @@
             }
             document.getElementById('guidanceProgress').style.width = (frac * 100).toFixed(1) + '%';
             document.getElementById('guidanceDistance').textContent = renderGuidanceStatus();
-            if (!map.getBounds().contains(posMarker.getLatLng())) map.panTo(posMarker.getLatLng(), { animate: true, duration: 0.5 });
+            const ll = posMarker.getLatLng();
+            const b = map.getBounds();
+            const halfLat = (b.getNorth() - b.getSouth()) / 2;
+            const halfLng = (b.getEast() - b.getWest()) / 2;
+            const c = map.getCenter();
+            const keep = L.latLngBounds(
+                [c.lat - halfLat * 0.8, c.lng - halfLng * 0.8],
+                [c.lat + halfLat * 0.8, c.lng + halfLng * 0.8]
+            );
+            if (!keep.contains(ll) && !map._dragging) map.panTo(ll, { animate: true, duration: 0.35 });
             if (frac >= 1) handleArrival();
         }
 
