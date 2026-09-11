@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     ai_blend_max_samples: int = 100
     traffic_ml_blend_samples: int = 50
 
+    # -------- Antigravity / Gemini ETA --------
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-flash"
+    gemini_eta_weight: float = 0.5
+
     # -------- Crowd-sourced hazard reports --------
     incident_ttl_hours: int = 2
 
@@ -68,6 +73,9 @@ class Settings(BaseSettings):
             "ml_min_history_samples": self.ml_min_history_samples,
             "auto_retrain_threshold": self.auto_retrain_threshold,
             "ai_blend_max_samples": self.ai_blend_max_samples,
+            "gemini_enabled": bool(self.gemini_api_key),
+            "gemini_model": self.gemini_model,
+            "ai_provider": "antigravity" if self.gemini_api_key else "local",
             "incident_ttl_hours": self.incident_ttl_hours,
             "coverage": {
                 "lat_min": BALI_LAT_MIN,

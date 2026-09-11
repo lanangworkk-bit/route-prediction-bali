@@ -1285,6 +1285,7 @@
                 const tags = [
                     flagTag(c.tomtom_enabled, c.tomtom_enabled ? 'TomTom Live' : 'Lalin Model+Sim'),
                     flagTag(c.openweathermap_enabled, c.openweathermap_enabled ? 'Cuaca OWM' : 'Cuaca Mock'),
+                    flagTag(c.gemini_enabled, `🤖 Antigravity (${c.ai_provider === 'antigravity' ? c.gemini_model : 'lokal'})`),
                 ];
                 document.getElementById('configBadge').innerHTML = tags.join(' ');
             } catch (e) { console.error(e); }
@@ -1704,11 +1705,18 @@
             document.getElementById('rAdvice').textContent = weather.impact;
 
             const ai = best.road_conditions.ai || {};
-            const hasAi = ai.model_active && ai.samples > 0;
+            const hasAi = (ai.model_active && ai.samples > 0) || ai.provider === 'antigravity';
             const aiEl = document.getElementById('rAi');
             if (aiEl) {
+                const chips = [];
+                if (ai.provider === 'antigravity') {
+                    chips.push(`<span class="flag on">🤖 Antigravity</span> ${escapeHtml(ai.model || 'gemini')} · prediksi ${fmtTime(ai.gemini_predicted_minutes)} <span style="color:#999">(bobot ${Math.round((ai.gemini_weight || 0) * 100)}%)</span>`);
+                }
+                if (ai.model_active && ai.samples > 0) {
+                    chips.push(`🤖 AI ${ai.samples} sampel · blend ${Math.round(ai.blend_weight * 100)}% · AI ${fmtTime(ai.predicted_minutes)} <span style="color:#999">(heuristik ${fmtTime(ai.heuristic_minutes)})</span>`);
+                }
                 aiEl.innerHTML = hasAi
-                    ? `<span class="flag on">🤖 AI</span> ${ai.samples} sampel · blend ${Math.round(ai.blend_weight * 100)}% · AI ${fmtTime(ai.predicted_minutes)} <span style="color:#999">(heuristik ${fmtTime(ai.heuristic_minutes)})</span>`
+                    ? chips.join('<br>')
                     : `<span class="flag off">🤖 AI mengumpulkan sampel</span> (min 10 perjalanan)`;
             }
 

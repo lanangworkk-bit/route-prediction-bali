@@ -4,6 +4,7 @@ from contextlib import suppress
 os.environ["DATABASE_URL"] = "sqlite:///./test_route_prediction.db"
 os.environ["TOMTOM_API_KEY"] = ""
 os.environ["OPENWEATHERMAP_API_KEY"] = ""
+os.environ["GEMINI_API_KEY"] = ""
 
 import pytest
 

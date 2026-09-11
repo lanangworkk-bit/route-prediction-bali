@@ -276,6 +276,8 @@ def test_public_config_endpoint():
     assert "ai_refresh_interval_s" in data
     assert "coverage" in data
     assert data["coverage"]["lat_min"] == -8.85
+    assert "gemini_enabled" in data
+    assert "ai_provider" in data
 
 
 def test_realtime_incidents_sse():

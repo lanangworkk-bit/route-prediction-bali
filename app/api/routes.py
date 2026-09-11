@@ -16,6 +16,7 @@ from app.models.route import (
     RouteRequest,
     RouteResponse,
 )
+from app.services import ai_eta_service
 from app.services.area_service import area_service
 from app.services.favorites_service import favorites_service
 from app.services.history_service import history_service
@@ -494,12 +495,27 @@ async def realtime_route(
     async def event_generator():
         weather = await weather_service.get_current_weather(origin_lat, origin_lng)
         wf = weather_service.calculate_weather_impact(weather).speed_factor
+        gemini_minutes = None
+        if ai_eta_service.is_enabled():
+            gemini_minutes, _ = await asyncio.to_thread(
+                ai_eta_service.refine_eta,
+                {
+                    "distance_km": distance_km,
+                    "base_minutes": base_minutes,
+                    "mode": mode.value,
+                    "priority": priority.value,
+                    "hour": datetime.now().hour,
+                    "day_of_week": datetime.now().weekday(),
+                    "origin": {"lat": origin_lat, "lng": origin_lng},
+                    "destination": {"lat": dest_lat, "lng": dest_lng},
+                },
+            )
         try:
             while True:
                 pulse = realtime_eta(
                     distance_km, base_minutes,
                     [{"lat": p.lat, "lng": p.lng} for p in points],
-                    wf, mode,
+                    wf, mode, gemini_minutes=gemini_minutes,
                 )
                 yield _sse_event({
                     "event": "route",

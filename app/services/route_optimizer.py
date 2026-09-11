@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime
 
@@ -13,6 +14,15 @@ from app.models.route import (
     RoutePriority,
     RouteRequest,
     RouteResponse,
+)
+from app.services.ai_eta_service import (
+    blend as gemini_blend,
+)
+from app.services.ai_eta_service import (
+    is_enabled as gemini_enabled,
+)
+from app.services.ai_eta_service import (
+    refine_eta as gemini_refine,
 )
 from app.services.history_service import history_service
 from app.services.incident_service import incident_service
@@ -45,6 +55,7 @@ def realtime_eta(
     coordinates: list,
     weather_speed_factor: float,
     mode: RouteMode,
+    gemini_minutes: float | None = None,
 ) -> dict:
     """Ringan & sinkron: hitung ulang ETA dengan traffic/insiden/AI terbaru
     untuk SSE realtime (tanpa re-routing OSRM berat)."""
@@ -81,6 +92,11 @@ def realtime_eta(
             adjusted = adjusted * (1 - ai_weight) + ai_pred * ai_weight
             ai = {"model_active": True, "blend_weight": ai_weight,
                   "predicted_minutes": round(ai_pred, 2)}
+
+    if gemini_minutes is not None and factor is not None:
+        adjusted, gemini_block = gemini_blend(adjusted, gemini_minutes)
+        if gemini_block:
+            ai = {**ai, **gemini_block}
 
     return {
         "eta_minutes": round(adjusted, 2),
@@ -125,6 +141,11 @@ class RouteOptimizer:
 
         best_route = scored_routes[0]
         alternative_routes = scored_routes[1:]
+
+        if gemini_enabled():
+            best_route = await self._refine_with_gemini(
+                best_route, request.preferences.mode
+            ) or best_route
 
         weather_summary = {
             "temperature": weather.temperature,
@@ -343,6 +364,36 @@ class RouteOptimizer:
                 "congestion_source": traffic_service.congestion_source(),
             },
         )
+
+    async def _refine_with_gemini(
+        self, route: RouteInfo, mode: RouteMode
+    ) -> RouteInfo | None:
+        """Selaraskan ETA rute terbaik dengan estimasi Gemini (Antigravity)."""
+        if MODE_TIME_FACTOR.get(mode, 1.0) is None:
+            return None
+        now = datetime.now()
+        first = route.coordinates[0] if route.coordinates else route
+        last = route.coordinates[-1] if route.coordinates else route
+        gemini_minutes, _ = await asyncio.to_thread(
+            gemini_refine,
+            {
+                "distance_km": route.distance_km,
+                "base_minutes": route.estimated_time_minutes,
+                "mode": MODE_LABELS.get(mode, mode.value),
+                "hour": now.hour,
+                "day_of_week": now.weekday(),
+                "origin": {"lat": getattr(first, "lat", 0), "lng": getattr(first, "lng", 0)},
+                "destination": {"lat": getattr(last, "lat", 0), "lng": getattr(last, "lng", 0)},
+            },
+        )
+        if gemini_minutes is None:
+            return None
+        blended, gemini_block = gemini_blend(route.estimated_time_minutes, gemini_minutes)
+        if not gemini_block:
+            return None
+        route.estimated_time_minutes = round(blended, 2)
+        route.road_conditions["ai"] = {**route.road_conditions["ai"], **gemini_block}
+        return route
 
     def _get_traffic_level(self, score: float) -> str:
         if score >= 0.8:

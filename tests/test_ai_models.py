@@ -1,10 +1,13 @@
 from datetime import datetime
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.config import Settings
 from app.ml.registry import registry
 from app.ml.trainer import retrain_models
 from app.ml.travel_time_model import TravelTimeModel, travel_time_model
+from app.services.ai_eta_service import blend, is_enabled, refine_eta
 from app.services.history_service import history_service
 
 
@@ -150,3 +153,47 @@ def test_travel_time_persistence_roundtrip(tmp_path):
         "mode_factor": 1.0,
     })
     assert pred is not None and pred > 0
+
+
+# ============ Antigravity / Gemini ETA ============
+
+
+def test_gemini_blend_returns_original_when_none():
+    assert blend(60.0, None) == (60.0, {})
+
+
+def test_gemini_blend_weighted():
+    blended, meta = blend(60.0, 80.0, weight=0.5)
+    assert blended == 70.0
+    assert meta["provider"] == "antigravity"
+    assert meta["gemini_weight"] == 0.5
+
+
+def test_gemini_blend_clamps_extreme():
+    blended, meta = blend(60.0, 1000.0, weight=0.5)
+    assert blended < 120  # clamped by 1.8x
+
+
+def test_gemini_disabled_without_key(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.ai_eta_service.get_settings",
+        lambda: Settings(gemini_api_key="", gemini_model="gemini-2.5-flash"),
+    )
+    assert is_enabled() is False
+    assert refine_eta({"distance_km": 10}) == (None, None)
+
+
+def test_refine_eta_parses_mocked_response(monkeypatch):
+    fake_settings = Settings(gemini_api_key="test-key", gemini_model="gemini-2.5-flash")
+    monkeypatch.setattr(
+        "app.services.ai_eta_service.get_settings",
+        lambda: fake_settings,
+    )
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {
+        "candidates": [{"content": {"parts": [{"text": '{"eta_minutes": 42.5}'}]}}]
+    }
+    with patch("requests.post", return_value=mock_resp):
+        eta, source = refine_eta({"distance_km": 10})
+    assert eta == 42.5
+    assert source == "gemini:gemini-2.5-flash"
