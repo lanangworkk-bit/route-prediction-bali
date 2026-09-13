@@ -33,7 +33,7 @@ Sistem prediksi rute terbaik untuk kendaraan di Bali menggunakan AI yang mempert
 - **Riwayat Trip** - Setiap prediksi tersimpan ke SQLite, dapat di-retrain model dengan data nyata
 - **ML Models** - Model machine learning untuk prediksi dan scoring
  - **AI Real-time Engine (ML Terawasi)** - Model travel-time dilatih dari `trip_history` nyata dan diblend dengan estimasi heuristik (`blend_weight` naik seiring jumlah sampel). Status model & blend tampil live di UI (kartu "🤖 AI Real-time Engine")
- - **Antigravity / Gemini ETA** - Saat `GEMINI_API_KEY` diisi, estimasi waktu tempuh rute terbaik & denyut SSE juga diblend dengan prediksi Gemini (keluarga Antigravity, default `gemini-2.5-flash`) sebesar `gemini_eta_weight`. Tanpa API key, aplikasi tetap berfungsi penuh dengan model lokal (degradasi tenang)
+ - **Antigravity / Gemini ETA** - Saat `GEMINI_API_KEY` diisi, estimasi waktu tempuh rute terbaik & denyut SSE juga diblend dengan prediksi Gemini (keluarga Antigravity, default `gemini-3.6-flash`) sebesar `gemini_eta_weight`. Tanpa API key, aplikasi tetap berfungsi penuh dengan model lokal (degradasi tenang)
 - **Auto-Retrain Background** - Deteksi otomatis saat sampel riwayat ≥ `auto_retrain_threshold` lalu retrain semua model di background (thread) tanpa blokir request
 - **Traffic ML Blend** - Prediksi kepadatan menggabungkan + faktor model traffic dengan simulasi heuristik bila API TomTom tak tersedia
 - **Realtime Feed (SSE)** - Stream insiden baru, denyut traffic, & ETA rute aktif ke browser secara live (`/realtime/incidents`, `/realtime/traffic`, `/realtime/route`); insiden baru muncul sebagai toast di UI, ETA/waktu tiba/lalu lintas rute diperbarui otomatis tanpa re-routing (traffic+insiden+blend AI dihitung ulang per denyut)
@@ -78,7 +78,7 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edit .env dan tambahkan API key OpenWeatherMap
 # Opsional: GEMINI_API_KEY=<key dari aistudio.google.com> untuk blend ETA Antigravity/Gemini
-# GEMINI_MODEL=gemini-2.5-flash   # (default) model Gemini untuk estimasi ETA
+# GEMINI_MODEL=gemini-3.6-flash   # (default) model Gemini untuk estimasi ETA
 ```
 
 ### 5. Jalankan Aplikasi

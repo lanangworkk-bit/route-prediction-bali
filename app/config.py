@@ -44,7 +44,7 @@ class Settings(BaseSettings):
 
     # -------- Antigravity / Gemini ETA --------
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.6-flash"
     gemini_eta_weight: float = 0.5
 
     # -------- Crowd-sourced hazard reports --------

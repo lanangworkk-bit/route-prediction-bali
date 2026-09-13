@@ -13,7 +13,7 @@ def test_search_disabled_without_key(monkeypatch):
 
 
 def test_search_parses_mocked_response(monkeypatch):
-    fake_settings = Settings(gemini_api_key="test-key", gemini_model="gemini-2.5-flash")
+    fake_settings = Settings(gemini_api_key="test-key", gemini_model="gemini-3.6-flash")
     monkeypatch.setattr("app.services.gemini_client.get_settings", lambda: fake_settings)
     monkeypatch.setattr("app.services.ai_search_service.is_enabled", lambda: True)
 
@@ -35,8 +35,37 @@ def test_search_parses_mocked_response(monkeypatch):
     assert parsed["note"]
 
 
+def test_search_picks_json_from_multi_part_response(monkeypatch):
+    fake_settings = Settings(gemini_api_key="test-key", gemini_model="gemini-3.6-flash")
+    monkeypatch.setattr("app.services.gemini_client.get_settings", lambda: fake_settings)
+    monkeypatch.setattr("app.services.ai_search_service.is_enabled", lambda: True)
+
+    mock_resp = MagicMock()
+    payload = (
+        '{"destination": "Bedugul", "priority": "relaxed", '
+        '"mode": "motorcycle", "note": "Rute sejuk."}'
+    )
+    mock_resp.json.return_value = {
+        "candidates": [{
+            "content": {
+                "parts": [
+                    {"text": "Ensure output is strictly JSON and nothing else."},
+                    {"text": payload},
+                ]
+            }
+        }]
+    }
+    with patch("requests.post", return_value=mock_resp):
+        parsed = search_parse("ajak ke Bedugul santai")
+
+    assert parsed is not None
+    assert parsed["destination"] == "Bedugul"
+    assert parsed["priority"] == "relaxed"
+    assert parsed["mode"] == "motorcycle"
+
+
 def test_search_coerces_invalid_enum_values(monkeypatch):
-    fake_settings = Settings(gemini_api_key="test-key", gemini_model="gemini-2.5-flash")
+    fake_settings = Settings(gemini_api_key="test-key", gemini_model="gemini-3.6-flash")
     monkeypatch.setattr("app.services.gemini_client.get_settings", lambda: fake_settings)
     monkeypatch.setattr("app.services.ai_search_service.is_enabled", lambda: True)
 

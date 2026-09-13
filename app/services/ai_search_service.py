@@ -21,7 +21,7 @@ def search_parse(query: str, *, timeout: float = 10.0) -> dict | None:
     if not is_enabled():
         return None
     prompt = "Permintaan pengguna:\n" + (query or "").strip()
-    data = generate_json(prompt, _SEARCH_SYSTEM, max_output_tokens=120, timeout=timeout)
+    data = generate_json(prompt, _SEARCH_SYSTEM, max_output_tokens=1024, timeout=timeout)
     if not data:
         return None
     priority = data.get("priority")

@@ -6,7 +6,7 @@ from app.services.gemini_client import generate_json, is_enabled
 logger = logging.getLogger(__name__)
 
 
-def refine_eta(context: dict, *, timeout: float = 8.0) -> tuple[float | None, str | None]:
+def refine_eta(context: dict, *, timeout: float = 15.0) -> tuple[float | None, str | None]:
     """Estimasi ETA dari Gemini (keluarga Antigravity) berbasis konteks rute.
 
     Mengembalikan (eta_minutes, provider_label). Bila API key kosong atau ada
@@ -29,7 +29,7 @@ def refine_eta(context: dict, *, timeout: float = 8.0) -> tuple[float | None, st
     data = generate_json(
         prompt,
         'Return strict JSON: {"eta_minutes": number}',
-        max_output_tokens=32,
+        max_output_tokens=512,
         timeout=timeout,
     )
     if data is None:

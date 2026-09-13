@@ -177,14 +177,14 @@ def test_gemini_blend_clamps_extreme():
 def test_gemini_disabled_without_key(monkeypatch):
     monkeypatch.setattr(
         "app.services.gemini_client.get_settings",
-        lambda: Settings(gemini_api_key="", gemini_model="gemini-2.5-flash"),
+        lambda: Settings(gemini_api_key="", gemini_model="gemini-3.6-flash"),
     )
     assert is_enabled() is False
     assert refine_eta({"distance_km": 10}) == (None, None)
 
 
 def test_refine_eta_parses_mocked_response(monkeypatch):
-    fake_settings = Settings(gemini_api_key="test-key", gemini_model="gemini-2.5-flash")
+    fake_settings = Settings(gemini_api_key="test-key", gemini_model="gemini-3.6-flash")
     monkeypatch.setattr("app.services.gemini_client.get_settings", lambda: fake_settings)
     monkeypatch.setattr("app.services.ai_eta_service.is_enabled", lambda: True)
     mock_resp = MagicMock()
@@ -194,4 +194,4 @@ def test_refine_eta_parses_mocked_response(monkeypatch):
     with patch("requests.post", return_value=mock_resp):
         eta, source = refine_eta({"distance_km": 10})
     assert eta == 42.5
-    assert source == "gemini:gemini-2.5-flash"
+    assert source == "gemini:gemini-3.6-flash"

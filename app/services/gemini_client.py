@@ -16,6 +16,17 @@ def is_enabled() -> bool:
     return bool((get_settings().gemini_api_key or "").strip())
 
 
+def _parse_json_text(text: str) -> dict | None:
+    """Parse JSON yang bisa dibungkus markdown fence / teks tambahan."""
+    if not text:
+        return None
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        return None
+    return json.loads(text[start : end + 1])
+
+
 def generate_json(
     prompt: str,
     system: str,
@@ -48,16 +59,20 @@ def generate_json(
         )
         resp.raise_for_status()
         payload = resp.json()
-        text = (
-            (payload.get("candidates") or [{}])[0]
-            .get("content", {})
-            .get("parts", [{}])[0]
-            .get("text", "")
-            .strip()
+        parts = (payload.get("candidates") or [{}])[0].get("content", {}).get(
+            "parts", []
         )
-        if not text:
-            return None
-        return json.loads(text)
+        for part in parts:
+            text = (part.get("text") or "").strip()
+            if not text:
+                continue
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                parsed = _parse_json_text(text)
+                if parsed is not None:
+                    return parsed
+        return None
     except Exception as exc:  # noqa: BLE001 - kegagalan harus degradasi tenang
         logger.warning("Gemini call gagal: %s", exc)
         return None
