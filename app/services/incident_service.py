@@ -12,7 +12,12 @@ INCIDENT_TYPES = {
     "tutup_jalan": {"label": "Tutup Jalan", "icon": "⛔", "color": "#333333"},
     "kecelakaan": {"label": "Kecelakaan", "icon": "💥", "color": "#e53935"},
     "konstruksi": {"label": "Konstruksi", "icon": "🚧", "color": "#ef6c00"},
-    "lainnya": {"label": "Lainnya", "icon": "📢", "color": "#6a1b9a"},
+    "upacara_adat": {
+        "label": "Upacara Adat",
+        "icon": "🛕",
+        "color": "#6a1b9a",
+        "hint": "Penutupan/pengeretasan jalan karena upacara adat"},
+    "lainnya": {"label": "Lainnya", "icon": "📢", "color": "#795548"},
 }
 
 
@@ -26,12 +31,17 @@ class Incident:
     reporter: str = "anonym"
     created_at: float = field(default_factory=time.time)
     expires_in_seconds: int = 2 * 3600
+    start_at: int | None = None
+    end_at: int | None = None
 
     @property
     def expired(self) -> bool:
+        if self.end_at and time.time() > self.end_at:
+            return True
         return time.time() - self.created_at > self.expires_in_seconds
 
     def to_dict(self) -> dict:
+        now = time.time()
         return {
             "id": self.id,
             "lat": self.lat,
@@ -41,11 +51,17 @@ class Incident:
                 "label", self.incident_type
             ),
             "icon": INCIDENT_TYPES.get(self.incident_type, {}).get("icon", "📢"),
-            "color": INCIDENT_TYPES.get(self.incident_type, {}).get("color", "#6a1b9a"),
+            "color": INCIDENT_TYPES.get(self.incident_type, {}).get("color", "#795548"),
             "description": self.description,
             "reporter": self.reporter,
             "created_at": round(self.created_at),
-            "age_minutes": round((time.time() - self.created_at) / 60),
+            "age_minutes": round((now - self.created_at) / 60),
+            "scheduled": self.start_at is not None,
+            "start_at": self.start_at,
+            "end_at": self.end_at,
+            "upcoming": (
+                bool(self.start_at and 0 <= self.start_at - now <= 6 * 3600)
+            ),
         }
 
 
@@ -73,6 +89,8 @@ class IncidentService:
         incident_type: str = "macet",
         description: str = "",
         reporter: str = "anonym",
+        start_at: int | None = None,
+        end_at: int | None = None,
     ) -> Incident:
         if incident_type not in INCIDENT_TYPES:
             incident_type = "lainnya"
@@ -82,6 +100,8 @@ class IncidentService:
             incident_type=incident_type,
             description=description.strip(),
             reporter=reporter.strip() or "anonym",
+            start_at=start_at,
+            end_at=end_at,
         )
         inc.expires_in_seconds = self._ttl_seconds
         self._prune()
@@ -126,7 +146,13 @@ class IncidentService:
         if not coordinates or not self._incidents:
             return 0.0
 
-        _ROUTE_HIT_TYPES = ("macet", "kecelakaan", "tutup_jalan", "banjir")
+        _ROUTE_HIT_TYPES = (
+            "macet",
+            "kecelakaan",
+            "tutup_jalan",
+            "banjir",
+            "upacara_adat",
+        )
         incidents = [
             i for i in self._incidents.values() if i.incident_type in _ROUTE_HIT_TYPES
         ]
@@ -139,6 +165,8 @@ class IncidentService:
             closest = min(haversine_distance(inc_pt, pt) for pt in coordinates)
             if closest <= radius_km:
                 severity = 0.35 if inc.incident_type in ("kecelakaan", "tutup_jalan") else 0.2
+                if inc.incident_type == "upacara_adat" and inc.scheduled:
+                    severity = 0.28
                 penalties.append(severity * (1 - closest / radius_km + 0.5))
         return min(0.8, sum(penalties))
 

@@ -57,6 +57,8 @@ class IncidentCreate(BaseModel):
     incident_type: str = "macet"
     description: str = ""
     reporter: str = "anonym"
+    start_at: int | None = None
+    end_at: int | None = None
 
 
 class TrackStartRequest(BaseModel):
@@ -667,8 +669,16 @@ async def list_incidents(
 async def report_incident(body: IncidentCreate):
     if not is_within_bali(Coordinate(lat=body.lat, lng=body.lng)):
         raise HTTPException(status_code=400, detail="Location is outside Bali coverage area")
+    if (body.end_at or 0) < (body.start_at or 0):
+        raise HTTPException(status_code=400, detail="end_at must be after start_at")
     incident = incident_service.report(
-        body.lat, body.lng, body.incident_type, body.description, body.reporter
+        body.lat,
+        body.lng,
+        body.incident_type,
+        body.description,
+        body.reporter,
+        body.start_at,
+        body.end_at,
     )
     return {"message": "Insiden dilaporkan", "incident": incident.to_dict()}
 

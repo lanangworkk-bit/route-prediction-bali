@@ -593,6 +593,35 @@ def test_incident_route_penalty(monkeypatch):
         incident_service.resolve(inc.id)
 
 
+def test_incident_adat_schedule_flow():
+    import time
+
+    now = int(time.time())
+    report = client.post("/api/v1/incidents", json={
+        "lat": -8.52, "lng": 115.26, "incident_type": "upacara_adat",
+        "description": "Ngaben di banjar",
+        "start_at": now + 60,
+        "end_at": now + 3600,
+    })
+    assert report.status_code == 200
+    inc = report.json()["incident"]
+    assert inc["incident_type"] == "upacara_adat"
+    assert inc["type_label"] == "Upacara Adat"
+    assert inc["scheduled"] is True
+    assert inc["upcoming"] is True
+    assert inc["icon"] == "🛕"
+    assert client.delete(f"/api/v1/incidents/{inc['id']}").status_code == 200
+
+
+def test_incident_adat_schedule_validation():
+    report = client.post("/api/v1/incidents", json={
+        "lat": -8.55, "lng": 115.20, "incident_type": "upacara_adat",
+        "start_at": 2000,
+        "end_at": 1000,
+    })
+    assert report.status_code == 400
+
+
 def test_favorites_flow():
     create = client.post("/api/v1/favorites", json={
         "name": "Pulang Kerja",

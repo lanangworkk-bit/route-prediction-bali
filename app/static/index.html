@@ -436,15 +436,22 @@
 
             <div class="incident-form" id="incidentForm">
                 <b>🚨 Laporkan Masalah di Peta</b>
-                <select id="incidentType">
+                <select id="incidentType" onchange="toggleIncidentSchedule()">
                     <option value="macet">🚗 Macet</option>
                     <option value="banjir">🌊 Banjir</option>
                     <option value="tutup_jalan">⛔ Tutup Jalan</option>
                     <option value="kecelakaan">💥 Kecelakaan</option>
                     <option value="konstruksi">🚧 Konstruksi</option>
+                    <option value="upacara_adat">🛕 Upacara Adat (jadwal)</option>
                     <option value="lainnya">📢 Lainnya</option>
                 </select>
                 <input type="text" id="incidentDesc" placeholder="Deskripsi singkat (opsional)">
+                <div id="incidentSchedule" style="display:none;color:#6a1b9a;background:#f3e5f5;padding:8px;border-radius:8px;margin-top:8px;">
+                    <div>🛕 Penutupan jalan karena upacara adat bisa dijadwalkan. Mulai:
+                        <input type="datetime-local" id="incidentStart" style="width:100%;margin-top:4px;"></div>
+                    <div style="margin-top:4px;">Selesai:
+                        <input type="datetime-local" id="incidentEnd" style="width:100%;margin-top:4px;"></div>
+                </div>
                 <div style="display:flex;gap:6px;margin-top:8px;">
                     <button class="action-btn" onclick="submitIncident()">Kirim Laporan</button>
                     <button class="action-btn" onclick="closeIncidentForm()">Batal</button>
@@ -977,8 +984,14 @@
             openIncidentAtClick();
         }
 
+        function toggleIncidentSchedule() {
+            const isAdat = document.getElementById('incidentType').value === 'upacara_adat';
+            document.getElementById('incidentSchedule').style.display = isAdat ? 'block' : 'none';
+        }
+
         async function submitIncident() {
             if (!incidentPending) { showToast('Klik di peta dulu untuk menandai titik insiden'); return; }
+            const isAdat = document.getElementById('incidentType').value === 'upacara_adat';
             const body = {
                 lat: incidentPending.lat,
                 lng: incidentPending.lng,
@@ -986,6 +999,14 @@
                 description: document.getElementById('incidentDesc').value,
                 reporter: 'saya',
             };
+            if (isAdat) {
+                body.start_at = document.getElementById('incidentStart').value
+                    ? new Date(document.getElementById('incidentStart').value).getTime() / 1000
+                    : null;
+                body.end_at = document.getElementById('incidentEnd').value
+                    ? new Date(document.getElementById('incidentEnd').value).getTime() / 1000
+                    : null;
+            }
             try {
                 const res = await fetch(`${API_BASE}/api/v1/incidents`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -1006,10 +1027,13 @@
                 document.getElementById('incidentCount').textContent = data.incidents.length;
                 incidentLayer.clearLayers();
                 data.incidents.forEach(i => {
+                    const sched = i.scheduled && i.start_at
+                        ? `<br><b>Jadwal:</b> ${new Date(i.start_at * 1000).toLocaleString('id-ID', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}${i.end_at ? ' — ' + new Date(i.end_at * 1000).toLocaleString('id-ID', { hour: '2-digit', minute: '2-digit' }) : ''}${i.upcoming ? ' <span style="background:#ffeb3b;color:#000;padding:1px 5px;border-radius:6px;">⚠ segera</span>' : ''}`
+                                        : '';
                     L.marker([i.lat, i.lng], {
-                        icon: L.divIcon({ html: `<span style="font-size:20px;">${i.icon}</span>`, className: '', iconSize: [22, 22] }),
+                        icon: L.divIcon({ html: `<span style="font-size:${i.upcoming ? '26' : '20'}px;">${i.icon}</span>`, className: '', iconSize: [22, 22] }),
                     })
-                        .bindPopup(`<b>${i.icon} ${escapeHtml(i.type_label)}</b><br>${escapeHtml(i.description || '')}<br><i>${i.age_minutes} menit lalu</i>`)
+                        .bindPopup(`<b>${i.icon} ${escapeHtml(i.type_label)}</b>${sched}<br>${escapeHtml(i.description || '')}<br><i>${i.age_minutes} menit lalu</i>`)
                         .addTo(incidentLayer);
                 });
             } catch (e) { console.error(e); }
