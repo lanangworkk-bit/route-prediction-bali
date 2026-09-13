@@ -136,6 +136,23 @@
         @keyframes spin { to { transform: rotate(360deg); } }
         .map-area { flex: 1; position: relative; }
         #map { width: 100%; height: 100vh; }
+        #map3d {
+            display: none; position: absolute; inset: 0; z-index: 500;
+            background: #e5e3df; overflow: hidden;
+        }
+        .map3d-btn {
+            position: absolute; top: 12px; right: 12px; z-index: 1100;
+            background: white; border: 1px solid #ddd; border-radius: 8px;
+            padding: 8px 12px; font-size: 12px; font-weight: 700; cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+        }
+        .map3d-btn.active { background: #1a6b37; color: #fff; border-color: #1a6b37; }
+        .map3d-mode { position: absolute; z-index: 1100; right: 12px; top: 52px;
+            background: white; border-radius: 8px; padding: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+            display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: #555; }
+        .map3d-mode select {
+            border: 1px solid #ddd; border-radius: 6px; padding: 4px; font-size: 11px;
+        }
         .map-mode-panel {
             position: absolute; top: 12px; left: 12px; z-index: 1000; background: white;
             border-radius: 10px; padding: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.2);
@@ -290,6 +307,8 @@
     <div class="container">
         <main class="map-area">
             <div id="map"></div>
+            <div id="map3d"></div>
+            <button class="map3d-btn" id="map3dBtn" onclick="toggle3D()" title="Mode tampilan peta 3D (MapLibre)">🧊 3D</button>
             <div class="guidance-bar" id="guidanceBar">
                 <div class="guidance-icon" id="guidanceIcon">🚩</div>
                 <div class="guidance-text">
@@ -1515,6 +1534,7 @@
                         const snap = snapToRoute(gpsLat, gpsLng);
                         gpsTargetFrac = snap.frac;
                         detectOffRoute(Math.sqrt(snap.dist) * 111000);
+                        sync3DPosition(gpsLat, gpsLng);
                     },
                     () => {
                         gpsActive = false;
@@ -1828,6 +1848,7 @@
             });
 
             const bestLine = L.polyline(geom.best.coordinates.map(ll), { color: '#14532d', weight: 6, opacity: 0.9 }).addTo(routeLayer);
+            if (mbMap) draw3DRoute();
 
             (geom.traffic_segments || []).forEach(seg => {
                 L.polyline([ll(seg.start), ll(seg.end)], {
@@ -2249,6 +2270,106 @@ ${best.coordinates.map(c => c[0] + ',' + c[1] + ',0').join('\n')}
             });
             applyShareParams();
         });
+
+        // ============ Mode 3D (MapLibre GL JS) ============
+        let mbMap = null, mb3dLayer = null, mb3dMarkers = [];
+
+        function ensureMapLibre() {
+            if (window.maplibregl) return Promise.resolve();
+            const css = document.createElement('link');
+            css.rel = 'stylesheet';
+            css.href = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css';
+            document.head.appendChild(css);
+            return new Promise((res, rej) => {
+                const s = document.createElement('script');
+                s.src = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js';
+                s.onload = () => res();
+                s.onerror = () => rej(new Error('Gagal memuat MapLibre (Offline?)'));
+                document.head.appendChild(s);
+            });
+        }
+
+        async function toggle3D() {
+            const btn = document.getElementById('map3dBtn');
+            if (mbMap) { exit3D(); return; }
+            try { await ensureMapLibre(); }
+            catch (e) { showToast('⚠ ' + e.message); btn.classList.remove('active'); return; }
+            btn.classList.add('active');
+            enter3D();
+        }
+
+        function enter3D() {
+            const el = document.getElementById('map3d');
+            el.style.display = 'block';
+            const center = map.getCenter();
+            const zoom = map.getZoom();
+            const pitchSel = document.getElementById('map3dPitch');
+            const pitch = pitchSel ? parseInt(pitchSel.value, 10) : 60;
+            mbMap = new maplibregl.Map({
+                container: 'map3d',
+                style: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+                center: [center.lng, center.lat],
+                zoom: Math.min(zoom, 14),
+                pitch,
+                bearing: 12,
+                attributionControl: true,
+            });
+            mbMap.touchPitch.disable();
+            mbMap.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-left');
+            mbMap.on('load', draw3DRoute);
+        }
+
+        function exit3D() {
+            document.getElementById('map3d').style.display = 'none';
+            if (mbMap) { mbMap.remove(); mbMap = null; }
+            mb3dMarkers.forEach(m => m.remove()); mb3dMarkers = [];
+            document.getElementById('map3dBtn').classList.remove('active');
+        }
+
+        function draw3DRoute() {
+            if (!mbMap || !routeData || !routeData.best || !routeData.best.coordinates.length) return;
+            const coords = routeData.best.coordinates;
+            mb3dMarkers.forEach(m => m.remove()); mb3dMarkers = [];
+
+            const geo = { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } };
+            if (mbMap.getSource('route3d')) mbMap.removeSource('route3d');
+            mbMap.addSource('route3d', { type: 'geojson', data: geo });
+            mbMap.addLayer({
+                id: 'route3d-shadow',
+                type: 'line',
+                source: 'route3d',
+                paint: { 'line-color': '#000', 'line-width': 7, 'line-opacity': 0.15, 'line-blur': 3 },
+                layout: { 'line-cap': 'round', 'line-join': 'round' },
+            }, 'building');
+            mbMap.addLayer({
+                id: 'route3d-line',
+                type: 'line',
+                source: 'route3d',
+                paint: { 'line-color': '#1a6b37', 'line-width': 4, 'line-opacity': 0.9 },
+                layout: { 'line-cap': 'round', 'line-join': 'round' },
+            }, 'building');
+
+            const start = coords[0], end = coords[coords.length - 1];
+            [
+                { pos: start, html: '📍', color: '#2196F3' },
+                { pos: end,  html: '🏁', color: '#f44336' },
+            ].forEach(({ pos, html, color }) => {
+                const el = document.createElement('div');
+                el.style.cssText = `background:${color};width:28px;height:28px;border-radius:50%;border:3px solid #fff;
+                    box-shadow:0 2px 6px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;font-size:14px;cursor:default;`;
+                el.textContent = html;
+                mb3dMarkers.push(new maplibregl.Marker({ element: el }).setLngLat(pos).addTo(mbMap));
+            });
+
+            const bounds = new maplibregl.LngLatBounds(coords[0], coords[0]);
+            coords.forEach(c => bounds.extend(c));
+            mbMap.fitBounds(bounds, { padding: { top: 60, right: 60, bottom: 60, left: 60 }, maxZoom: 15 });
+        }
+
+        function sync3DPosition(lat, lng) {
+            if (!mbMap) return;
+            mbMap.easeTo({ center: [lng, lat], duration: 300 });
+        }
     </script>
 </body>
 </html>
