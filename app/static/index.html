@@ -1692,6 +1692,14 @@
         async function aiSearchSubmit() {
             const q = (document.getElementById('aiQuery').value || '').trim();
             if (!q) return;
+
+            if (guidanceActive && /\b(berapa|lama lagi|menit lagi|kapan sampai|sisa w?aktu|tiba)\b/i.test(q)) {
+                const status = renderGuidanceStatus();
+                aiShowNote(status ? `🚗 Saat ini: ${status}.` : '🚗 Navigasi berjalan. Ikuti panduan arah.');
+                aiSpeak(status ? `Saat ini ${status}` : 'Navigasi berjalan, ikuti panduan arah.');
+                return;
+            }
+
             const btn = document.querySelector('.ai-go');
             if (btn) btn.disabled = true;
             try {
