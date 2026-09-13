@@ -1055,6 +1055,7 @@
                         .bindPopup(`<b>${i.icon} ${escapeHtml(i.type_label)}</b>${sched}<br>${escapeHtml(i.description || '')}<br><i>${i.age_minutes} menit lalu</i>`)
                         .addTo(incidentLayer);
                 });
+                if (mbMap) draw3DIncidents(data.incidents);
             } catch (e) { console.error(e); }
         }
 
@@ -2272,7 +2273,8 @@ ${best.coordinates.map(c => c[0] + ',' + c[1] + ',0').join('\n')}
         });
 
         // ============ Mode 3D (MapLibre GL JS) ============
-        let mbMap = null, mb3dLayer = null, mb3dMarkers = [];
+        let mbMap = null, mb3dMarkers = [], mb3dIncidents = [];
+        let mb3dPos = null;
 
         function ensureMapLibre() {
             if (window.maplibregl) return Promise.resolve();
@@ -2316,13 +2318,19 @@ ${best.coordinates.map(c => c[0] + ',' + c[1] + ',0').join('\n')}
             });
             mbMap.touchPitch.disable();
             mbMap.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-left');
-            mbMap.on('load', draw3DRoute);
+            mbMap.on('load', () => {
+                draw3DRoute();
+                draw3DIncidents();
+                if (gpsLat != null && gpsLng != null) sync3DPosition(gpsLat, gpsLng);
+            });
         }
 
         function exit3D() {
             document.getElementById('map3d').style.display = 'none';
             if (mbMap) { mbMap.remove(); mbMap = null; }
             mb3dMarkers.forEach(m => m.remove()); mb3dMarkers = [];
+            mb3dIncidents.forEach(m => m.remove()); mb3dIncidents = [];
+            mb3dPos = null;
             document.getElementById('map3dBtn').classList.remove('active');
         }
 
@@ -2331,8 +2339,11 @@ ${best.coordinates.map(c => c[0] + ',' + c[1] + ',0').join('\n')}
             const coords = routeData.best.coordinates;
             mb3dMarkers.forEach(m => m.remove()); mb3dMarkers = [];
 
-            const geo = { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } };
             if (mbMap.getSource('route3d')) mbMap.removeSource('route3d');
+            if (mbMap.getLayer('route3d-line')) mbMap.removeLayer('route3d-line');
+            if (mbMap.getLayer('route3d-shadow')) mbMap.removeLayer('route3d-shadow');
+
+            const geo = { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } };
             mbMap.addSource('route3d', { type: 'geojson', data: geo });
             mbMap.addLayer({
                 id: 'route3d-shadow',
@@ -2348,6 +2359,40 @@ ${best.coordinates.map(c => c[0] + ',' + c[1] + ',0').join('\n')}
                 paint: { 'line-color': '#1a6b37', 'line-width': 4, 'line-opacity': 0.9 },
                 layout: { 'line-cap': 'round', 'line-join': 'round' },
             }, 'building');
+
+            const segs = routeData.best.traffic_segments || [];
+            if (segs.length) {
+                const features = segs.map(s => ({
+                    type: 'Feature',
+                    properties: { level: s.level || 'lancar' },
+                    geometry: { type: 'LineString', coordinates: [s.start, s.end] },
+                }));
+                mbMap.addSource('route3d-traffic', {
+                    type: 'geojson',
+                    data: { type: 'FeatureCollection', features },
+                });
+                mbMap.addLayer({
+                    id: 'route3d-traffic-line',
+                    type: 'line',
+                    source: 'route3d-traffic',
+                    layout: { 'line-cap': 'round', 'line-join': 'round' },
+                    paint: {
+                        'line-width': 5,
+                        'line-opacity': 0.95,
+                        'line-color': [
+                            'match', ['get', 'level'],
+                            'macet', '#c62828',
+                            'padat', '#ef6c00',
+                            'normal', '#fbc02d',
+                            'lancar', '#2E8B57',
+                            '#1a6b37',
+                        ],
+                    },
+                }, 'route3d-line');
+            } else if (mbMap.getSource('route3d-traffic')) {
+                mbMap.removeSource('route3d-traffic');
+                if (mbMap.getLayer('route3d-traffic-line')) mbMap.removeLayer('route3d-traffic-line');
+            }
 
             const start = coords[0], end = coords[coords.length - 1];
             [
@@ -2366,8 +2411,30 @@ ${best.coordinates.map(c => c[0] + ',' + c[1] + ',0').join('\n')}
             mbMap.fitBounds(bounds, { padding: { top: 60, right: 60, bottom: 60, left: 60 }, maxZoom: 15 });
         }
 
+        function draw3DIncidents(incidents) {
+            if (!mbMap) return;
+            mb3dIncidents.forEach(m => m.remove()); mb3dIncidents = [];
+            (incidents || []).forEach(i => {
+                const el = document.createElement('div');
+                el.style.cssText = `background:${i.color};width:24px;height:24px;border-radius:50%;border:2px solid #fff;
+                    box-shadow:0 2px 6px rgba(0,0,0,0.25);display:flex;align-items:center;justify-content:center;
+                    font-size:12px;cursor:pointer;`;
+                el.textContent = i.icon;
+                el.title = `${i.type_label}${i.description ? ' — ' + i.description : ''}`;
+                mb3dIncidents.push(new maplibregl.Marker({ element: el }).setLngLat([i.lng, i.lat]).addTo(mbMap));
+            });
+        }
+
         function sync3DPosition(lat, lng) {
             if (!mbMap) return;
+            if (!mb3dPos) {
+                const el = document.createElement('div');
+                el.style.cssText = `width:16px;height:16px;border-radius:50%;background:#1565c0;border:3px solid #fff;
+                    box-shadow:0 2px 6px rgba(0,0,0,0.3);`;
+                mb3dPos = new maplibregl.Marker({ element: el }).setLngLat([lng, lat]).addTo(mbMap);
+            } else {
+                mb3dPos.setLngLat([lng, lat]);
+            }
             mbMap.easeTo({ center: [lng, lat], duration: 300 });
         }
     </script>

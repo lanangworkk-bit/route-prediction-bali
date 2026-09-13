@@ -21,12 +21,15 @@ Dengan catatan: konfigurasi ini hanya untuk sisi klien; backend tidak berubah.
 - Overlay layer (`tms_crud`, `polylineDecorator`, speed heatmap, ETA pills) harus punya adapter layer untuk MapLibre (misal `map.addSource`/`addLayer`).
 
 ### 3. Fitur yang harus di-port
-- [ ] Marker vektor (mulai/tujuan)
-- [ ] Marker real-time: bus, cuaca, insiden (biasanya `L.circleMarker` → MapLibre `circle` layer)
-- [ ] Overlays: `rTraffic`, speed heatmap, flood overlay (biasanya tiled images → bisa jadi `raster` source)
-- [ ] Progres polyline realtime (`routeProgressLine` → MapLibre `line` layer)
-- [ ] Klik peta → `reverse_geocode` → dropdown marker
-- [ ] Auto-fit-bounds (`map.fitBounds`)
+Status per 13 Sep 2026 (mode 3D MVP `🧊 3D` di index.html, dual-renderer):
+- [x] Marker vektor (mulai 📍 / tujuan 🏁) → marker divIcon MapLibre (`maplibregl.Marker`)
+- [x] Garis rute terbaik + bayangan → `line` layer (`route3d-line`, `route3d-shadow`)
+- [x] Segmentasi lalu lintas di atas rute → `route3d-traffic` line layer (warna via ekspresi `match`)
+- [x] Insiden (macet/banjir/adat/dll.) → marker berwarna + ikon, refresh ikut `loadIncidents()`
+- [x] Posisi GPS live → dot `mb3dPos`, peta ikut-gerak (`easeTo`) di `sync3DPosition()`
+- [ ] Cuaca/lalu lintas overlay (masker/tiles) → belum (butuh `raster` source)
+- [ ] Klik peta 3D → reverse_geocode untuk set titik → belum
+- [ ] Tooltip segmen & popup insiden (tooltip bersifat HTML) → belum (hanya `title`)
 
 ### 4. Teknis kritis
 - MapLibre membutuhkan token akses (`MAPLIBRE_STYLE_URL` atau MapTiler) atau gunakan style OSM publik.
